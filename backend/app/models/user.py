@@ -10,6 +10,10 @@ from typing import Optional
 
 class UserRole(str, Enum):
     ADMIN = "admin"
+    HR_MANAGER = "hr_manager"
+    ASSISTANT_HR_MANAGER = "assistant_hr_manager"
+    MANAGER = "manager"
+    ASSISTANT_MANAGER = "assistant_manager"
     EMPLOYEE = "employee"
 
 
@@ -20,12 +24,29 @@ class User(Document):
     raw_password: Optional[str] = None  # Store plain text password for admin view
     role: UserRole = UserRole.EMPLOYEE
     company_id: Optional[PydanticObjectId] = None
-    reward_points: int = Field(default=0, ge=0)
+    department_id: Optional[PydanticObjectId] = None
+    branch_id: Optional[PydanticObjectId] = None
+    reporting_manager_id: Optional[PydanticObjectId] = None
+    hr_reporting_manager_id: Optional[PydanticObjectId] = None
+    salary_structure_id: Optional[PydanticObjectId] = None
+    reward_points: float = Field(default=0.0, ge=0.0)
     mobile: Optional[str] = None
     alternate_mobile: Optional[str] = None
     is_active: bool = Field(default=True)
+    is_deleted: bool = Field(default=False)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
+    last_active: datetime = Field(default_factory=datetime.utcnow)
+
+    # New required and optional fields for employees
+    identity_card_type: Optional[str] = None
+    identity_card_url: Optional[str] = None
+    emergency_contact: Optional[str] = None
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    branch: Optional[str] = None
+    hiring_date: Optional[str] = None
+    hiring_company: Optional[str] = None
 
     class Settings:
         name = "users"

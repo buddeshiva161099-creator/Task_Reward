@@ -2,7 +2,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  role: 'admin' | 'employee';
+  role: 'admin' | 'hr_manager' | 'assistant_hr_manager' | 'manager' | 'assistant_manager' | 'employee';
   reward_points: number;
   is_active: boolean;
   created_at: string;
@@ -25,8 +25,8 @@ export interface Task {
   assigned_to_name: string | null;
   created_by: string;
   created_by_name: string | null;
-  status: 'pending' | 'in_progress' | 'completed' | 'overdue' | 'completed_late';
-  priority: 'regular' | 'medium' | 'high' | 'critical';
+  status: 'pending' | 'assigned' | 'in_progress' | 'under_review' | 'completed' | 'completed_late' | 'overdue' | 'delayed' | 'rejected';
+  priority: 'low' | 'regular' | 'medium' | 'high' | 'critical';
   task_type: 'assigned' | 'personal';
   deadline: string;
   completed_at: string | null;
@@ -67,6 +67,10 @@ export interface Company {
   auto_checkout_enabled: boolean;
   location_drift_threshold_km: number;
   created_at: string;
+  sick_leave_limit?: number;
+  earned_leave_limit?: number;
+  casual_leave_limit?: number;
+  max_paid_casual_leaves_per_month?: number;
 }
 
 export interface Attendance {
@@ -103,6 +107,8 @@ export interface Employee {
   raw_password?: string;
   mobile?: string;
   alternate_mobile?: string;
+  reporting_manager_id?: string;
+  hr_reporting_manager_id?: string;
 }
 
 export interface LoginRequest {
@@ -123,6 +129,8 @@ export interface CreateEmployeeRequest {
   role?: string;
   mobile?: string;
   alternate_mobile?: string;
+  reporting_manager_id?: string;
+  hr_reporting_manager_id?: string;
 }
 
 export interface CreateTaskRequest {
@@ -154,10 +162,25 @@ export interface UpdateTaskRequest {
   remarks?: string;
 }
 
+export interface RoleStats {
+  total: number;
+  present: number;
+  absent: number;
+}
+
 export interface DashboardStats {
   employees: {
     total: number;
     active: number;
+    role_counts?: {
+      employee: RoleStats;
+      manager: RoleStats;
+      assistant_manager: RoleStats;
+      hr_manager: RoleStats;
+      assistant_hr_manager: RoleStats;
+      admin: RoleStats;
+      total_all_inclusive: RoleStats;
+    };
   };
   tasks: {
     total: number;

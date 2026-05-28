@@ -225,6 +225,7 @@ export default function EmployeeTasksPage() {
     }
   };
 
+
   const handleAddRemark = async (taskId: string) => {
     if (!remarkText.trim()) return;
     setSubmittingRemark(true);

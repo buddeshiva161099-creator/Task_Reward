@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import api from '@/lib/api';
-import { Bell, Check, Trash2, Clock, CheckCircle2, ClipboardList, Info, X } from 'lucide-react';
+import { Bell, Check, Trash2, Clock, CheckCircle2, ClipboardList, Info, X, MessageSquare } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
 
@@ -10,7 +10,7 @@ interface Notification {
   id: string;
   title: string;
   message: string;
-  type: 'task_assigned' | 'task_completed' | 'system';
+  type: 'task_assigned' | 'task_completed' | 'system' | 'chat';
   is_read: boolean;
   created_at: string;
 }
@@ -23,7 +23,7 @@ export default function NotificationBell() {
 
   const fetchNotifications = useCallback(async () => {
     try {
-      const response = await api.get('/notifications/');
+      const response = await api.get('/notifications');
       setNotifications(response.data.items);
       setUnreadCount(response.data.unread_count);
     } catch (error) {
@@ -47,6 +47,17 @@ export default function NotificationBell() {
     } catch (error) {
       console.error('Failed to mark as read:', error);
     }
+  };
+
+  const handleNotificationClick = async (notification: Notification) => {
+    if (!notification.is_read) {
+      await markAsRead(notification.id);
+    }
+    if (notification.type === 'chat') {
+      const isShareAdmin = window.location.pathname.startsWith('/admin');
+      window.location.href = isShareAdmin ? '/admin/chat' : '/employee/chat';
+    }
+    setIsOpen(false);
   };
 
   const markAllAsRead = async () => {
@@ -75,6 +86,7 @@ export default function NotificationBell() {
     switch (type) {
       case 'task_assigned': return <ClipboardList className="w-4 h-4 text-indigo-500" />;
       case 'task_completed': return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
+      case 'chat': return <MessageSquare className="w-4 h-4 text-blue-500" />;
       default: return <Info className="w-4 h-4 text-amber-500" />;
     }
   };
@@ -83,6 +95,7 @@ export default function NotificationBell() {
     switch (type) {
       case 'task_assigned': return 'bg-indigo-50';
       case 'task_completed': return 'bg-emerald-50';
+      case 'chat': return 'bg-blue-50';
       default: return 'bg-amber-50';
     }
   };
@@ -145,7 +158,7 @@ export default function NotificationBell() {
                   {notifications.map((notification) => (
                     <div
                       key={notification.id}
-                      onClick={() => markAsRead(notification.id)}
+                      onClick={() => handleNotificationClick(notification)}
                       className={cn(
                         "p-4 hover:bg-white/60 transition-colors cursor-pointer group/item relative",
                         !notification.is_read && "bg-indigo-50/30"

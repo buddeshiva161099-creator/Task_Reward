@@ -29,23 +29,54 @@ async def create_task(
     current_user: User = Depends(get_current_user),
 ):
     """Create a new task. Supports multiple assignees, multiple companies, and recurrence."""
+    from app.routes.employees import get_visible_employee_ids
+    visible_ids = await get_visible_employee_ids(current_user)
     
     # 1. Determine target employees
     target_employees = []
     if request.for_all:
-        target_employees = await User.find(User.role == UserRole.EMPLOYEE, User.is_active == True).to_list()
+        if current_user.role == UserRole.MANAGER:
+            # Find all users in their hierarchy scope
+            if visible_ids is not None:
+                target_employees = await User.find(
+                    In(User.id, list(visible_ids)),
+                    User.is_active == True,
+                ).to_list()
+            else:
+                target_employees = await User.find(User.is_active == True).to_list()
+        elif current_user.role == UserRole.ASSISTANT_MANAGER:
+            if visible_ids is not None:
+                target_employees = await User.find(
+                    In(User.id, list(visible_ids)),
+                    User.is_active == True,
+                ).to_list()
+            else:
+                target_employees = await User.find(User.is_active == True).to_list()
+        else:
+            target_employees = await User.find(
+                In(User.role, [UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
+                               UserRole.MANAGER, UserRole.ASSISTANT_MANAGER, UserRole.EMPLOYEE]),
+                User.is_active == True
+            ).to_list()
     elif request.assigned_to_list:
         target_employees = await User.find(In(User.id, [PydanticObjectId(uid) for uid in request.assigned_to_list])).to_list()
     elif request.assigned_to:
         emp = await User.get(PydanticObjectId(request.assigned_to))
         if emp: target_employees = [emp]
 
-    if not target_employees and not request.is_recurrent:
-        # If not management, assigned_to is self
-        if current_user.role != UserRole.ADMIN:
-            target_employees = [current_user]
-        else:
-            raise HTTPException(status_code=400, detail="No valid employees selected.")
+    # Validate hierarchy for specific assignees
+    if current_user.role != UserRole.ADMIN:
+        if visible_ids is not None:
+            allowed_ids = visible_ids | {current_user.id}
+            for emp in target_employees:
+                if emp.id not in allowed_ids:
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="You can only assign tasks to employees under your hierarchy."
+                    )
+
+    if not target_employees:
+        target_employees = [current_user]
 
     # 2. Determine target companies
     target_companies = []
@@ -56,30 +87,12 @@ async def create_task(
     else:
         target_companies = [None]
 
-    # 3. Handle Recurrence Registration
-    recurring_rule = None
-    if request.is_recurrent and request.recurrence:
-        recurring_rule = RecurrenceRule(
-            work_description=request.work_description,
-            priority=request.priority,
-            assigned_to_list=[emp.id for emp in target_employees],
-            company_id_list=[cid for cid in target_companies if cid],
-            created_by=current_user.id,
-            type=RecurrenceType(request.recurrence.type),
-            interval=request.recurrence.interval,
-            weekdays=request.recurrence.weekdays,
-            month_day=request.recurrence.month_day,
-            end_type=RecurrenceEndType(request.recurrence.end_type),
-            end_value=request.recurrence.end_value,
-            next_run=request.deadline # First occurrence is the provided deadline
-        )
-        await recurring_rule.insert()
-
-    # 4. Create initial task instances
+    # 3. Create initial task instances first
     last_task = None
+    created_tasks = []
     for cid in target_companies:
         for emp in target_employees:
-            last_task = await task_service.create_task(
+            task_instance = await task_service.create_task(
                 work_description=request.work_description,
                 assigned_to=str(emp.id),
                 created_by=str(current_user.id),
@@ -87,9 +100,60 @@ async def create_task(
                 deadline=request.deadline,
                 task_type="assigned" if emp.id != current_user.id else "personal",
                 company_id=str(cid) if cid else None,
-                recurring_task_id=recurring_rule.id if recurring_rule else None,
+                recurring_task_id=None,
                 category_ids=request.category_ids,
             )
+            created_tasks.append(task_instance)
+            last_task = task_instance
+
+    if not last_task:
+        raise HTTPException(status_code=400, detail="Failed to create tasks.")
+
+    # 4. Handle Recurrence Registration
+    recurring_rule = None
+    if request.is_recurrent and request.recurrence:
+        from app.models.recurring_task import RecurrenceRule, RecurrenceType, RecurrenceEndType
+        from datetime import datetime, timezone
+        from app.services.recurrence_service import calculate_next_run
+
+        parsed_end_date = None
+        occurrences_count = None
+        if request.recurrence.end_type == "date" and request.recurrence.end_value:
+            try:
+                # Handle ISO format dates
+                parsed_end_date = datetime.fromisoformat(request.recurrence.end_value.replace("Z", ""))
+            except Exception:
+                parsed_end_date = None
+        elif request.recurrence.end_type == "count" and request.recurrence.end_value:
+            try:
+                occurrences_count = int(request.recurrence.end_value)
+            except Exception:
+                occurrences_count = None
+
+        recurring_rule = RecurrenceRule(
+            name=f"Recurring: {request.work_description[:40]}",
+            created_by=current_user.id,
+            task_template_id=last_task.id,
+            recurrence_type=RecurrenceType(request.recurrence.type),
+            interval=request.recurrence.interval,
+            weekdays=request.recurrence.weekdays,
+            month_days=[request.recurrence.month_day] if request.recurrence.month_day else None,
+            start_date=datetime.now(timezone.utc),
+            end_type=RecurrenceEndType(request.recurrence.end_type),
+            end_date=parsed_end_date,
+            occurrences=occurrences_count,
+            occurrence_count=1,
+            is_active=True
+        )
+        # Calculate next run time after the initial deadline
+        recurring_rule.next_run = request.deadline
+        recurring_rule.next_run = calculate_next_run(recurring_rule)
+        await recurring_rule.insert()
+
+        # Link all created tasks back to the rule
+        for task in created_tasks:
+            task.recurring_task_id = recurring_rule.id
+            await task.save()
 
     if not last_task:
         raise HTTPException(status_code=400, detail="Failed to create tasks.")
@@ -122,18 +186,63 @@ async def list_tasks(
     employee_id: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ):
-    """Get tasks. Admins see all; employees see only their own."""
-    is_management = current_user.role == UserRole.ADMIN
-    
-    # If not management, they can only see their own tasks
-    target_user_id = str(current_user.id) if not is_management else employee_id
-    
-    tasks = await task_service.get_tasks(
-        user_id=target_user_id,
-        status=status_filter,
-        priority=priority,
-        is_admin=is_management,
-    )
+    """Get tasks. Admins see all; managers/employees see according to hierarchy."""
+    from app.routes.employees import get_visible_employee_ids
+
+    visible_ids = await get_visible_employee_ids(current_user)
+
+    # 1. If employee_id is requested, verify permission
+    if employee_id:
+        emp_obj_id = PydanticObjectId(employee_id)
+        if visible_ids is not None and emp_obj_id not in visible_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only view tasks of employees under your hierarchy."
+            )
+        # Fetch only for this employee
+        tasks = await task_service.get_tasks(
+            user_id=employee_id,
+            status=status_filter,
+            priority=priority,
+            is_admin=True,
+        )
+    else:
+        # No employee_id filter.
+        # Admin sees all tasks.
+        # HR_MANAGER / ASSISTANT_HR_MANAGER: only their own assigned tasks in the
+        #   employee portal (same as a regular employee). Their management portal
+        #   always passes employee_id explicitly, so it takes the branch above.
+        # Manager / Assistant Manager: tasks within their hierarchy.
+        # Employee: only their own tasks.
+        if current_user.role == UserRole.ADMIN:
+            tasks = await task_service.get_tasks(
+                user_id=None,
+                status=status_filter,
+                priority=priority,
+                is_admin=True,
+            )
+        elif current_user.role in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER]:
+            all_tasks = await task_service.get_tasks(
+                user_id=None,
+                status=status_filter,
+                priority=priority,
+                is_admin=True,
+            )
+            # Filter in memory using visible_ids
+            tasks = [
+                t for t in all_tasks
+                if PydanticObjectId(t.assigned_to) in visible_ids
+                or PydanticObjectId(t.created_by) == current_user.id
+            ]
+        else:
+            # HR_MANAGER, ASSISTANT_HR_MANAGER, and EMPLOYEE all see only
+            # tasks that are assigned to themselves.
+            tasks = await task_service.get_tasks(
+                user_id=str(current_user.id),
+                status=status_filter,
+                priority=priority,
+                is_admin=False,
+            )
 
     # Batch resolve related entity names
     user_ids = set()
@@ -183,7 +292,44 @@ async def update_task(
     current_user: User = Depends(get_current_user),
 ):
     """Update a task. Employees can only update their own tasks."""
-    is_management = current_user.role == UserRole.ADMIN
+    db_task = await task_service.get_task_by_id(task_id)
+    if not db_task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    # Check the hierarchy of the task's assignee before proceeding with updates if the editor is not Admin
+    if current_user.role != UserRole.ADMIN:
+        if current_user.role not in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER]:
+            # For regular employee, verify they only update their own task
+            if db_task.assigned_to != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only update your own tasks."
+                )
+        else:
+            # It's a management role. Check hierarchy
+            from app.routes.employees import get_visible_employee_ids
+            visible_ids = await get_visible_employee_ids(current_user)
+            if visible_ids is not None and PydanticObjectId(db_task.assigned_to) not in visible_ids:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can only update tasks of employees under your hierarchy."
+                )
+
+    # Check hierarchy of new assignee if being reassigned
+    if request.assigned_to and current_user.role != UserRole.ADMIN:
+        from app.routes.employees import get_visible_employee_ids
+        visible_ids = await get_visible_employee_ids(current_user)
+        allowed_ref_ids = (visible_ids or set()) | {current_user.id}
+        if PydanticObjectId(request.assigned_to) not in allowed_ref_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only assign tasks to employees under your hierarchy."
+            )
+
+    is_management = current_user.role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ASSISTANT_MANAGER, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER]
     try:
         task = await task_service.update_task(
             task_id=task_id,
@@ -197,6 +343,7 @@ async def update_task(
             category_ids=request.category_ids,
             company_id=request.company_id,
             assigned_to=request.assigned_to,
+            quality_multiplier=request.quality_multiplier,
         )
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
@@ -232,10 +379,29 @@ async def delete_task(
     current_user: User = Depends(get_current_user),
 ):
     """Delete a task (management only)."""
-    if current_user.role != UserRole.ADMIN:
+    db_task = await task_service.get_task_by_id(task_id)
+    if not db_task:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found",
+        )
+
+    # Allowed to delete if Admin, or creator, or if Manager/AM/HR/Assistant HR and the task assignee is in their hierarchy
+    allowed = False
+    if current_user.role == UserRole.ADMIN:
+        allowed = True
+    elif db_task.created_by == current_user.id:
+        allowed = True
+    elif current_user.role in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER]:
+        from app.routes.employees import get_visible_employee_ids
+        visible_ids = await get_visible_employee_ids(current_user)
+        if visible_ids is not None and PydanticObjectId(db_task.assigned_to) in visible_ids:
+            allowed = True
+
+    if not allowed:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Insufficient permissions to delete tasks",
+            detail="You do not have permission to delete this task."
         )
 
     success = await task_service.delete_task(task_id)

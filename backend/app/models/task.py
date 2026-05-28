@@ -11,13 +11,18 @@ from beanie import PydanticObjectId
 
 class TaskStatus(str, Enum):
     PENDING = "pending"
+    ASSIGNED = "assigned"
     IN_PROGRESS = "in_progress"
+    UNDER_REVIEW = "under_review"
     COMPLETED = "completed"
-    OVERDUE = "overdue"
     COMPLETED_LATE = "completed_late"
+    OVERDUE = "overdue"
+    DELAYED = "delayed"
+    REJECTED = "rejected"
 
 
 class TaskPriority(str, Enum):
+    LOW = "low"
     REGULAR = "regular"
     MEDIUM = "medium"
     HIGH = "high"
@@ -41,7 +46,8 @@ class Task(Document):
     deadline: datetime
     completed_at: Optional[datetime] = None
     reward_given: bool = False
-    reward_points: int = 0
+    reward_points: float = 0.0
+    quality_multiplier: float = 1.0
     company_id: Optional[PydanticObjectId] = None
     company_name: Optional[str] = None
     category_ids: List[PydanticObjectId] = Field(default_factory=list)

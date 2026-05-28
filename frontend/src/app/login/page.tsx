@@ -23,7 +23,8 @@ export default function LoginPage() {
       await login(email, password);
       // Get user from localStorage after login
       const userData = JSON.parse(localStorage.getItem('user') || '{}');
-      if (userData.role === 'admin') {
+      const isManagement = ['admin', 'manager', 'assistant_manager', 'hr_manager', 'assistant_hr_manager'].includes(userData.role);
+      if (isManagement) {
         router.push('/admin/dashboard');
       } else {
         router.push('/employee/dashboard');

@@ -1,7 +1,7 @@
 """
 Task request/response schemas.
 """
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 from typing import Optional, List
 from datetime import datetime
 
@@ -26,24 +26,38 @@ class CreateTaskRequest(BaseModel):
     assigned_to: Optional[str] = None  # Single employee
     assigned_to_list: Optional[List[str]] = None  # Multiple employees
     priority: str = Field(default="medium", pattern="^(regular|medium|high|critical)$")
-    deadline: datetime
+    deadline: Optional[datetime] = None
     company_id: Optional[str] = None  # Single company
     company_id_list: Optional[List[str]] = None  # Multiple companies
     for_all: bool = False
     is_recurrent: bool = False
     recurrence: Optional[RecurrenceRuleSchema] = None
+
+    @validator("deadline")
+    def deadline_must_be_future(cls, v, values):
+        """For recurring tasks, deadline must be provided and be in the future. Non‑recurring tasks may omit deadline."""
+        from datetime import datetime, timezone
+        if values.get("is_recurrent"):
+            if v is None:
+                raise ValueError("Deadline is required for recurring tasks")
+            if v <= datetime.now(timezone.utc):
+                raise ValueError("Deadline must be a future date for recurring tasks")
+        return v
+
+
     category_ids: Optional[List[str]] = None
 
 
 class UpdateTaskRequest(BaseModel):
     work_description: Optional[str] = Field(None, min_length=1, max_length=2000)
-    status: Optional[str] = Field(None, pattern="^(pending|in_progress|completed|overdue|completed_late)$")
+    status: Optional[str] = Field(None, pattern="^(pending|in_progress|completed|overdue|completed_late|rejected)$")
     priority: Optional[str] = Field(None, pattern="^(regular|medium|high|critical)$")
     deadline: Optional[datetime] = None
     remarks: Optional[str] = Field(None, max_length=1000)  # New remark text to append
     category_ids: Optional[List[str]] = None
     company_id: Optional[str] = None
     assigned_to: Optional[str] = None
+    quality_multiplier: Optional[float] = None
 
 
 class TaskResponse(BaseModel):
@@ -59,7 +73,8 @@ class TaskResponse(BaseModel):
     deadline: str
     completed_at: Optional[str]
     reward_given: bool
-    reward_points: int = 0
+    reward_points: float = 0.0
+    quality_multiplier: float = 1.0
     company_id: Optional[str] = None
     company_name: Optional[str] = None
     category_ids: List[str] = []
@@ -67,6 +82,8 @@ class TaskResponse(BaseModel):
     remarks: List[RemarkEntry] = []
     created_at: str
 
+    is_recurring: bool = False
+    
     @classmethod
     def from_task(cls, task, assigned_name: str = None, creator_name: str = None, company_name: str = None, category_names: list = None) -> "TaskResponse":
         return cls(
@@ -83,10 +100,13 @@ class TaskResponse(BaseModel):
             completed_at=(task.completed_at.isoformat() + 'Z') if task.completed_at else None,
             reward_given=task.reward_given,
             reward_points=task.reward_points,
+            quality_multiplier=task.quality_multiplier,
             company_id=str(task.company_id) if task.company_id else None,
             company_name=company_name or task.company_name or "Personal / Internal",
             category_ids=[str(cid) for cid in (task.category_ids or [])],
             category_names=category_names if category_names is not None else (task.category_names or []),
             remarks=[RemarkEntry(**r) for r in (task.remarks or [])],
             created_at=task.created_at.isoformat() + 'Z',
+            is_recurring=bool(task.recurring_task_id),
         )
+

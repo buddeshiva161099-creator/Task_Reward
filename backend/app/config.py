@@ -6,7 +6,7 @@ from typing import List
 
 
 class Settings(BaseSettings):
-    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_URL: str = "mongodb://127.0.0.1:27017"
     DATABASE_NAME: str = "employee_task_reward"
     JWT_SECRET: str = "change-this-secret"
     JWT_ALGORITHM: str = "HS256"

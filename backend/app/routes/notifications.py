@@ -8,7 +8,7 @@ from typing import List
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
-@router.get("/", response_model=NotificationList)
+@router.get("", response_model=NotificationList)
 async def get_notifications(current_user: User = Depends(get_current_user)):
     """Fetch recent notifications for the current user."""
     print(f"Fetching notifications for user: {current_user.id} ({current_user.email})")

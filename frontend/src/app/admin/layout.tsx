@@ -7,32 +7,39 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Users, ClipboardList, FileBarChart,
   Trophy, LogOut, Zap, ChevronRight, Building2, MapPin, Menu, X as CloseIcon,
-  Settings, Calendar
+  Settings, Calendar, Clock, DollarSign, Trash2, MessageSquare
 } from 'lucide-react';
 import { useState } from 'react';
 import GlobalSearch from '@/components/GlobalSearch';
 import NotificationBell from '@/components/NotificationBell';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { Key } from 'lucide-react';
-
-const navItems = [
-  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/employees', label: 'Employees', icon: Users },
-  { href: '/admin/companies', label: 'Companies', icon: Building2 },
-  { href: '/admin/tasks', label: 'Tasks', icon: ClipboardList },
-  { href: '/admin/attendance', label: 'Attendance Logs', icon: MapPin },
-  { href: '/admin/reports', label: 'Reports', icon: FileBarChart },
-  { href: '/admin/leaderboard', label: 'Leaderboard', icon: Trophy },
-];
+import AIAssistant from '@/components/AIAssistant';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, isAdmin, logout } = useAuth();
+  const { user, isLoading, isAdmin, isHR, isManager, isAssistantManager, isHRTeam, isTaskTeam, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
 
-  const canAccess = isAdmin;
+  const isManagementRole = isAdmin || isHR || isManager || isAssistantManager;
+  const canAccess = isManagementRole;
+
+  const navItems = [
+    { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: true },
+    { href: '/admin/employees', label: 'Employees', icon: Users, visible: isHRTeam || isManager || isAssistantManager },
+    { href: '/admin/companies', label: 'Companies', icon: Building2, visible: isHRTeam },
+    { href: '/admin/tasks', label: 'Tasks', icon: ClipboardList, visible: isTaskTeam },
+    { href: '/admin/attendance', label: 'Attendance Logs', icon: MapPin, visible: isHRTeam },
+    { href: '/admin/leaves', label: 'Leaves', icon: Calendar, visible: isManagementRole },
+    { href: '/admin/regularization', label: 'Regularizations', icon: Clock, visible: isManagementRole },
+    { href: '/admin/payroll', label: 'Payroll Engine', icon: DollarSign, visible: isHRTeam },
+    { href: '/admin/reports', label: 'Reports', icon: FileBarChart, visible: true },
+    { href: '/admin/leaderboard', label: 'Leaderboard', icon: Trophy, visible: true },
+    { href: '/admin/chat', label: 'Chat Collaboration', icon: MessageSquare, visible: true },
+    { href: '/employee/dashboard', label: 'Employee Portal', icon: Users, visible: true },
+  ].filter(item => item.visible);
 
   useEffect(() => {
     if (!isLoading && (!user || !canAccess)) {
@@ -142,15 +149,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               </button>
               <div className="absolute right-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">
                 <div className="bg-white border border-slate-200 rounded-xl shadow-xl p-2 w-48">
-                  <Link 
-                    href="/admin/settings/rules" 
-                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-xs font-bold text-slate-600 transition-colors"
-                  >
-                    <div className="w-6 h-6 rounded-lg bg-indigo-50 flex items-center justify-center">
-                      <Zap className="w-3.5 h-3.5" />
-                    </div>
-                    Rules
-                  </Link>
+                  {(isAdmin || isHR || isManager) && (
+                    <Link 
+                      href="/admin/settings/rules" 
+                      className="flex items-center gap-3 px-3 py-2.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-xs font-bold text-slate-600 transition-colors"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-indigo-50 flex items-center justify-center">
+                        <Zap className="w-3.5 h-3.5" />
+                      </div>
+                      Rules
+                    </Link>
+                  )}
                   <Link 
                     href="/admin/settings/holidays" 
                     className="flex items-center gap-3 px-3 py-2.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-xs font-bold text-slate-600 transition-colors"
@@ -169,6 +178,17 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     </div>
                     Categories
                   </Link>
+                  {isHRTeam && (
+                    <Link 
+                      href="/admin/settings/deleted-employees" 
+                      className="flex items-center gap-3 px-3 py-2.5 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-xs font-bold text-slate-600 transition-colors"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-indigo-50 flex items-center justify-center">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </div>
+                      Deleted Employees
+                    </Link>
+                  )}
                   <button 
                     onClick={() => setShowChangePassword(true)}
                     className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-rose-50 hover:text-rose-600 rounded-lg text-xs font-bold text-slate-600 transition-colors"
@@ -194,6 +214,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </main>
       {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+      <AIAssistant />
     </div>
   );
 }

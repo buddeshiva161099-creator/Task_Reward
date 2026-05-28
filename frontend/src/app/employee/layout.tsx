@@ -5,7 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
-  LayoutDashboard, ClipboardList, LogOut, Zap, ChevronRight, Trophy, MapPin, Menu, BarChart
+  LayoutDashboard, ClipboardList, LogOut, Zap, ChevronRight, Trophy, MapPin, Menu, BarChart, Calendar, Clock, DollarSign, MessageSquare
 } from 'lucide-react';
 import { useState } from 'react';
 import GlobalSearch from '@/components/GlobalSearch';
@@ -13,20 +13,28 @@ import NotificationBell from '@/components/NotificationBell';
 import AttendanceToggle from '@/components/AttendanceToggle';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { Key } from 'lucide-react';
-
-const navItems = [
-  { href: '/employee/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/employee/attendance', label: 'Attendance', icon: MapPin },
-  { href: '/employee/tasks', label: 'My Tasks', icon: ClipboardList },
-  { href: '/employee/reports', label: 'Reports', icon: BarChart },
-];
+import AIAssistant from '@/components/AIAssistant';
 
 export default function EmployeeLayout({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, logout } = useAuth();
+  const { user, isLoading, isAdmin, isHR, isManager, isAssistantManager, logout } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+
+  const isManagementRole = isAdmin || isHR || isManager || isAssistantManager;
+
+  const navItems = [
+    { href: '/employee/dashboard', label: 'Dashboard', icon: LayoutDashboard, visible: true },
+    { href: '/employee/attendance', label: 'Attendance', icon: MapPin, visible: true },
+    { href: '/employee/tasks', label: 'My Tasks', icon: ClipboardList, visible: true },
+    { href: '/employee/leaves', label: 'Leaves PTO', icon: Calendar, visible: true },
+    { href: '/employee/regularization', label: 'Corrections', icon: Clock, visible: true },
+    { href: '/employee/payroll', label: 'My Payslips', icon: DollarSign, visible: true },
+    { href: '/employee/reports', label: 'Reports', icon: BarChart, visible: true },
+    { href: '/employee/chat', label: 'Chat Collaboration', icon: MessageSquare, visible: true },
+    { href: '/admin/dashboard', label: 'Management Panel', icon: Zap, visible: isManagementRole },
+  ].filter(item => item.visible);
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -167,6 +175,7 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
         </div>
       </main>
       {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+      <AIAssistant />
     </div>
   );
 }

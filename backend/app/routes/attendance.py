@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from app.models.attendance import Attendance
 from app.models.user import User, UserRole
 from app.models.company import Company
 from app.auth.dependencies import get_current_user
@@ -7,6 +6,7 @@ from app.services.geofence_utils import (
     is_within_geofence, calculate_drift_km, detect_anomalies, get_distance_to_office
 )
 from datetime import datetime, timedelta
+from app.models.attendance import Attendance, ist_now
 from typing import List, Optional
 from pydantic import BaseModel
 from beanie import PydanticObjectId
@@ -29,7 +29,7 @@ class AttendanceResponse(BaseModel):
     user_id: str
     user_name: Optional[str] = None
     user_email: Optional[str] = None
-    user_reward_points: Optional[int] = 0
+    user_reward_points: Optional[float] = 0.0
     company_id: str
     check_in: datetime
     check_out: Optional[datetime] = None
@@ -63,7 +63,8 @@ def _build_response(attendance: Attendance, user: Optional[User] = None) -> dict
 @router.post("/check-in", response_model=AttendanceResponse)
 async def check_in(req: AttendanceRequest, current_user: User = Depends(get_current_user)):
     """Record a check-in with live location and smart validation."""
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    now_ist = ist_now()
+    today_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
     
     existing = await Attendance.find_one(
         Attendance.user_id == current_user.id,
@@ -117,7 +118,7 @@ async def check_in(req: AttendanceRequest, current_user: User = Depends(get_curr
     status_str = "present"
     if company and company.work_start_time:
         try:
-            # Robust parsing of various formats (e.g., "09:00 AM", "9:00AM", "14:00")
+            # Robust parsing of various formats (e.g., "09:30 AM", "9:00AM", "14:00")
             work_start = None
             raw_time = company.work_start_time.strip().upper()
             
@@ -130,19 +131,22 @@ async def check_in(req: AttendanceRequest, current_user: User = Depends(get_curr
                     continue
             
             if work_start:
-                # Get current time in IST (UTC+5:30)
-                local_now = datetime.utcnow() + timedelta(hours=5, minutes=30)
-                
-                if local_now.hour > work_start.hour or (local_now.hour == work_start.hour and local_now.minute > work_start.minute):
-                    status_str = "late"
+                # Compare against current IST time
+                work_start_dt = now_ist.replace(hour=work_start.hour, minute=work_start.minute, second=0, microsecond=0)
+                if now_ist > work_start_dt:
+                    diff_minutes = (now_ist - work_start_dt).total_seconds() / 60.0
+                    if diff_minutes <= 30.0:
+                        status_str = "late_under_30"
+                    else:
+                        status_str = "late_over_30"
             else:
                 logger.warning(f"Could not parse work_start_time: {company.work_start_time}")
         except Exception as e:
-            print(f"Error calculating late status: {e}")
+            logger.error(f"Error calculating late status: {e}")
 
     # --- ANOMALY DETECTION (check-in time) ---
     anomaly_flags = detect_anomalies(
-        check_in_time=datetime.utcnow(),
+        check_in_time=now_ist,
         check_out_time=None,
         location_in={"lat": req.lat, "lng": req.lng},
         location_out=None,
@@ -166,7 +170,6 @@ async def check_in(req: AttendanceRequest, current_user: User = Depends(get_curr
         device_fingerprint=req.device_fingerprint,
     )
     await attendance.insert()
-    
     return _build_response(attendance, current_user)
 
 @router.post("/check-out", response_model=AttendanceResponse)
@@ -184,7 +187,7 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
 
     # --- MINIMUM SESSION DURATION CHECK ---
     if company and company.min_session_minutes > 0:
-        session_duration = (datetime.utcnow() - attendance.check_in).total_seconds() / 60
+        session_duration = (ist_now() - attendance.check_in).total_seconds() / 60
         if session_duration < company.min_session_minutes:
             remaining = int(company.min_session_minutes - session_duration)
             raise HTTPException(
@@ -225,13 +228,24 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
                 checkout_flags.append(f"location_drift_{drift_km}km")
 
     # Update attendance record
-    attendance.check_out = datetime.utcnow()
+    attendance.check_out = ist_now()
     attendance.location_out = {"lat": req.lat, "lng": req.lng}
     attendance.address_out = req.address
     attendance.location_drift_km = drift_km
     attendance.distance_from_office_out = distance_from_office_out
     attendance.flags = checkout_flags
     await attendance.save()
+    
+    # Automatically recalculate draft payroll if it exists and is not locked
+    try:
+        from app.routes.payroll import calculate_corporate_payroll
+        month_str = attendance.check_in.strftime("%Y-%m")
+        await calculate_corporate_payroll(
+            employee=current_user,
+            month=month_str
+        )
+    except Exception as e:
+        logger.warning(f"Could not automatically recalculate draft payroll on check-out: {e}")
     
     return _build_response(attendance, current_user)
 
@@ -243,28 +257,46 @@ async def get_my_attendance(current_user: User = Depends(get_current_user)):
 
 @router.get("/all", response_model=List[AttendanceResponse])
 async def get_all_attendance(current_user: User = Depends(get_current_user)):
-    """Retrieve attendance logs for management with user names."""
-    if current_user.role != UserRole.ADMIN:
+    """Retrieve attendance logs for management with user names. Hierarchy-scoped for non-admins."""
+    if current_user.role not in [
+        UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
+        UserRole.MANAGER, UserRole.ASSISTANT_MANAGER
+    ]:
         raise HTTPException(status_code=403, detail="Unauthorized access to attendance logs.")
-    
-    logs = await Attendance.find(Attendance.company_id == current_user.company_id).sort(-Attendance.check_in).to_list()
-    
+
+    from app.routes.employees import get_visible_employee_ids
+    visible_ids = await get_visible_employee_ids(current_user)
+
+    if visible_ids is not None:
+        # Filter logs to only visible employees
+        logs = await Attendance.find(
+            In(Attendance.user_id, list(visible_ids))
+        ).sort(-Attendance.check_in).to_list()
+    else:
+        # Admin: fetch all
+        logs = await Attendance.find().sort(-Attendance.check_in).to_list()
+
     user_ids = list(set([log.user_id for log in logs]))
     if not user_ids:
         return []
-        
+
     users = await User.find(In(User.id, user_ids)).to_list()
     user_map = {u.id: u for u in users}
-    
+
     return [_build_response(log, user_map.get(log.user_id)) for log in logs]
 
 @router.get("/summary")
 async def get_summary(current_user: User = Depends(get_current_user)):
-    """Get attendance summary for all employees (admin only)."""
-    if current_user.role != UserRole.ADMIN:
+    """Get attendance summary. Admin/HR see all; Managers see their hierarchy."""
+    if current_user.role not in [
+        UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
+        UserRole.MANAGER, UserRole.ASSISTANT_MANAGER
+    ]:
         raise HTTPException(status_code=403, detail="Unauthorized")
     from app.services import dashboard_service
-    return await dashboard_service.get_all_attendance_summary()
+    from app.routes.employees import get_visible_employee_ids
+    visible_ids = await get_visible_employee_ids(current_user)
+    return await dashboard_service.get_all_attendance_summary(visible_employee_ids=visible_ids)
 
 @router.get("/geofence-status")
 async def get_geofence_status(

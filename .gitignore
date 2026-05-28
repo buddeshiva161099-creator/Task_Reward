@@ -15,3 +15,12 @@ frontend/.env.local
 .idea/
 *.swp
 *.log
+
+# Databases & Data
+mongo_data/
+mongo_extracted/
+*.zip
+*.tar.gz
+*.tgz
+*.db
+*.sqlite

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import api from '@/lib/api';
 import {
-  FileBarChart, Download, Filter, FileSpreadsheet, FileText, Loader2, Calendar
+  FileBarChart, Download, Filter, FileSpreadsheet, FileText, Loader2, Calendar, Brain, Sparkles
 } from 'lucide-react';
 
 export default function EmployeeReportsPage() {
@@ -45,6 +45,42 @@ export default function EmployeeReportsPage() {
       window.URL.revokeObjectURL(url);
     } catch (err) {
       console.error('Download failed:', err);
+    } finally {
+      setDownloading('');
+    }
+  };
+
+  const downloadAIReport = async (reportType: string, format: 'excel' | 'html') => {
+    const key = `${reportType}_${format}`;
+    setDownloading(key);
+    try {
+      const res = await api.get('/ai/reports/export', {
+        params: { report_type: reportType, report_format: format },
+        responseType: format === 'excel' ? 'blob' : 'text',
+      });
+
+      if (format === 'excel') {
+        const filename = `my_ai_${reportType}_report.xlsx`;
+        const url = window.URL.createObjectURL(new Blob([res.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', filename);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+      } else {
+        const newWindow = window.open();
+        if (newWindow) {
+          newWindow.document.write(res.data);
+          newWindow.document.close();
+        } else {
+          alert('Popup blocked. Please allow popups to view the printable PDF report.');
+        }
+      }
+    } catch (err) {
+      console.error('AI Report download failed:', err);
+      alert('Failed to generate AI report.');
     } finally {
       setDownloading('');
     }
@@ -179,6 +215,63 @@ export default function EmployeeReportsPage() {
               <><Download className="w-4 h-4" /> Download Excel</>
             )}
           </button>
+        </div>
+      </div>
+
+      {/* AI Intelligence Reports Section */}
+      <div className="pt-6 border-t border-slate-100">
+        <div className="flex items-center gap-2.5 mb-6">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-100">
+            <Brain className="w-5 h-5 text-white animate-pulse" />
+          </div>
+          <div>
+            <h2 className="text-lg font-black text-slate-800">My AI Summaries & Performance Briefs</h2>
+            <p className="text-xs text-slate-400 font-medium">Generate personalized analytical summaries compiled by AI</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {[
+            { id: 'productivity', label: 'My Productivity Audit', desc: 'Detailed tracking of your task completions, average response time, and workload capacity.' },
+            { id: 'attendance', label: 'My Attendance & Consistency Insight', desc: 'Audit of your calendar check-in consistency, late login statistics, and warning flags.' }
+          ].map((rep) => (
+            <div key={rep.id} className="glass rounded-2xl p-5 border border-indigo-50/80 shadow-sm relative overflow-hidden flex flex-col justify-between hover:shadow-md transition-shadow">
+              <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl -mr-12 -mt-12" />
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs font-black text-indigo-650 bg-indigo-50 px-2 py-0.5 rounded-lg border border-indigo-100/30">AI Compiled</span>
+                  <Sparkles className="w-3.5 h-3.5 text-indigo-500 animate-pulse" />
+                </div>
+                <h4 className="font-extrabold text-slate-800 text-sm mb-1">{rep.label}</h4>
+                <p className="text-[11px] text-slate-450 font-semibold leading-relaxed mb-4">{rep.desc}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                <button
+                  onClick={() => downloadAIReport(rep.id, 'excel')}
+                  disabled={!!downloading}
+                  className="btn btn-secondary h-10 rounded-xl text-xs font-bold bg-white text-indigo-600 border-indigo-100 hover:bg-indigo-50/50 flex items-center justify-center gap-1"
+                >
+                  {downloading === `${rep.id}_excel` ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <>Excel Sheet</>
+                  )}
+                </button>
+                <button
+                  onClick={() => downloadAIReport(rep.id, 'html')}
+                  disabled={!!downloading}
+                  className="btn btn-primary h-10 rounded-xl text-xs font-bold bg-indigo-650 hover:bg-indigo-750 shadow-lg shadow-indigo-100 flex items-center justify-center gap-1 text-white"
+                >
+                  {downloading === `${rep.id}_html` ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <>Print / PDF</>
+                  )}
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

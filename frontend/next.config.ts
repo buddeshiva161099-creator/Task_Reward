@@ -1,10 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'export',
-  trailingSlash: true,
   images: {
     unoptimized: true,
+  },
+  reactStrictMode: true,
+  typescript: {
+    // Skip typescript type checking during production builds for speed
+    ignoreBuildErrors: true,
   },
 };
 

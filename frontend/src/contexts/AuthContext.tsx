@@ -8,7 +8,12 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAdmin: boolean;
+  isHR: boolean;
+  isManager: boolean;
+  isAssistantManager: boolean;
   isEmployee: boolean;
+  isHRTeam: boolean;
+  isTaskTeam: boolean;
   canManageAttendance: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -70,8 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isLoading,
         isAdmin: role === 'admin',
+        isHR: role === 'hr_manager' || role === 'assistant_hr_manager',
+        isManager: role === 'manager',
+        isAssistantManager: role === 'assistant_manager',
         isEmployee: role === 'employee',
-        canManageAttendance: role === 'admin',
+        isHRTeam: role === 'admin' || role === 'hr_manager' || role === 'assistant_hr_manager',
+        isTaskTeam: role === 'admin' || role === 'manager' || role === 'assistant_manager',
+        canManageAttendance: role === 'admin' || role === 'hr_manager' || role === 'assistant_hr_manager',
         login,
         logout,
       }}

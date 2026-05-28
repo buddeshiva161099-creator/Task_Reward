@@ -8,42 +8,53 @@ export function cn(...inputs: ClassValue[]) {
 export function ensureUTC(dateString: string): string {
   if (!dateString) return dateString;
   if (dateString.includes('Z') || dateString.includes('+')) return dateString;
-  return `${dateString}Z`;
+  return `${dateString}+05:30`;
 }
 
 export function formatDate(dateString: string): string {
-  return new Date(ensureUTC(dateString)).toLocaleDateString('en-US', {
+  return new Date(ensureUTC(dateString)).toLocaleDateString('en-IN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
+    timeZone: 'Asia/Kolkata',
   });
 }
 
 export function formatDateTime(dateString: string): string {
-  return new Date(ensureUTC(dateString)).toLocaleString('en-US', {
+  return new Date(ensureUTC(dateString)).toLocaleString('en-IN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kolkata',
   });
 }
 
 export function formatPreciseDateTime(dateString: string): string {
-  const date = new Date(ensureUTC(dateString));
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  
-  let hours = date.getHours();
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  hours = hours % 12;
-  hours = hours ? hours : 12; // the hour '0' should be '12'
-  const hoursStr = String(hours).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const seconds = String(date.getSeconds()).padStart(2, '0');
-  
-  return `${day}/${month}/${year} ${hoursStr}:${minutes}:${seconds} ${ampm}`;
+  if (!dateString) return '—';
+  return new Date(ensureUTC(dateString)).toLocaleString('en-IN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kolkata',
+  });
+}
+
+/** Returns just the time part in IST (e.g. "09:32 AM") */
+export function formatTimeIST(dateString: string): string {
+  if (!dateString) return '—';
+  return new Date(ensureUTC(dateString)).toLocaleTimeString('en-IN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Kolkata',
+  });
 }
 
 export function timeAgo(dateString: string): string {

@@ -1,5 +1,5 @@
 """
-Seed script to create initial admin user.
+Seed script to clear database and create initial admin user.
 Run: python seed.py
 """
 import asyncio
@@ -11,31 +11,34 @@ from app.auth.password import hash_password
 
 
 async def seed_admin():
-    """Create the initial admin user if not exists."""
+    """Clear database and create initial admin user."""
     client = AsyncMongoClient(settings.MONGODB_URL)
+    
+    print(f"Dropping database: {settings.DATABASE_NAME}...")
+    await client.drop_database(settings.DATABASE_NAME)
+    print("Database dropped successfully!")
+    
     database = client[settings.DATABASE_NAME]
     await init_beanie(database=database, document_models=[User])
 
-    admin_email = "admin@company.com"
-    admin_password = "Admin@123"
+    admin_data = {
+        "name": "System Admin",
+        "email": "admin@company.com",
+        "password": "Admin@123",
+        "role": UserRole.ADMIN
+    }
 
-    existing = await User.find_one(User.email == admin_email)
-    if existing:
-        print(f"[OK] Admin user already exists: {admin_email}")
-        return
-
-    admin = User(
-        name="System Admin",
-        email=admin_email,
-        password_hash=hash_password(admin_password),
-        role=UserRole.ADMIN,
+    user = User(
+        name=admin_data["name"],
+        email=admin_data["email"],
+        password_hash=hash_password(admin_data["password"]),
+        raw_password=admin_data["password"],
+        role=admin_data["role"],
     )
-    await admin.insert()
-    print(f"[OK] Admin user created successfully!")
-    print(f"   Email: {admin_email}")
-    print(f"   Password: {admin_password}")
-    print(f"   [!] Change the password after first login!")
-
+    await user.insert()
+    print(f"[OK] System Admin created successfully!")
+    print(f"   Email: {admin_data['email']}")
+    print(f"   Password: {admin_data['password']}")
 
 if __name__ == "__main__":
     asyncio.run(seed_admin())

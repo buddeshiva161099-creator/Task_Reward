@@ -1,44 +1,57 @@
-from beanie import Document
-from pydantic import Field
-from datetime import datetime
-from typing import Optional, List
-from beanie import PydanticObjectId
+"""Recurring task models.
+"""
+from beanie import Document, PydanticObjectId
+from pydantic import BaseModel, Field, validator
+from datetime import datetime, timezone
 from enum import Enum
+from typing import List, Optional
 
 class RecurrenceType(str, Enum):
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
+    YEARLY = "yearly"
+    CUSTOM = "custom"
 
 class RecurrenceEndType(str, Enum):
     NEVER = "never"
-    COUNT = "count"
-    DATE = "date"
+    ON_DATE = "on_date"
+    AFTER_OCCURRENCES = "after_occurrences"
 
 class RecurrenceRule(Document):
-    # This acts as a template for tasks
-    work_description: str
-    priority: str = "medium"
-    reward_points: int = 0
-    assigned_to_list: List[PydanticObjectId] = []
-    company_id_list: List[PydanticObjectId] = []
-    created_by: PydanticObjectId
-    
-    # Recurrence rules
-    type: RecurrenceType
-    interval: int = 1  # every 1 day/week/month
-    weekdays: Optional[List[int]] = None  # 0-6 (Mon-Sun)
-    month_day: Optional[int] = None
-    
+    """Defines a rule that generates tasks on a schedule.
+
+    The engine looks at ``next_run`` to decide when to spawn a new task.
+    ``is_active`` can be toggled off when the rule finishes.
+    """
+    name: str = Field(..., description="Human readable rule name")
+    created_by: PydanticObjectId = Field(..., description="User who created the rule")
+    task_template_id: PydanticObjectId = Field(..., description="Template task to clone for each occurrence")
+    recurrence_type: RecurrenceType
+    interval: int = Field(1, description="Every N days / weeks / months")
+    weekdays: Optional[List[int]] = None  # 0=Mon … 6=Sun, used for weekly
+    month_days: Optional[List[int]] = None  # 1‑31, used for monthly
+    start_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     end_type: RecurrenceEndType = RecurrenceEndType.NEVER
-    end_value: Optional[str] = None  # count or iso date
-    
-    # Tracking
-    next_run: datetime
-    last_run: Optional[datetime] = None
-    occurrence_count: int = 0
-    is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    end_date: Optional[datetime] = None
+    occurrences: Optional[int] = None  # Used when end_type == AFTER_OCCURRENCES
+    occurrence_count: int = Field(0, description="Number of times the rule has fired")
+    is_active: bool = Field(True, description="Whether the rule is currently active")
+    next_run: Optional[datetime] = None
+    last_occurrence: Optional[datetime] = None
+    assigned_to_list: List[PydanticObjectId] = Field(default_factory=list, description="Users assigned to this rule")
+
+    @validator("weekdays", each_item=True)
+    def _valid_weekday(cls, v):
+        if not 0 <= v <= 6:
+            raise ValueError("weekday must be 0‑6")
+        return v
+
+    @validator("month_days", each_item=True)
+    def _valid_month_day(cls, v):
+        if not 1 <= v <= 31:
+            raise ValueError("month day must be 1‑31")
+        return v
 
     class Settings:
-        name = "recurring_tasks"
+        name = "recurring_rules"

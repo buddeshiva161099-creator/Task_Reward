@@ -2,24 +2,26 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { Employee, Task, Company } from '@/types';
 import StatusChart from '@/components/StatusChart';
 import EmptyState from '@/components/EmptyState';
 import {
   formatDate, formatDateTime, getStatusColor, getStatusLabel,
-  getPriorityColor, timeAgo, formatPreciseDateTime
+  getPriorityColor, timeAgo, formatPreciseDateTime, ensureUTC
 } from '@/lib/utils';
 import {
   Mail, Calendar, Trophy, CheckCircle2, Clock, AlertCircle,
   ClipboardList, Activity, ArrowLeft, Plus, UserX, UserCheck,
   MessageSquarePlus, Play, Trash2, ChevronUp, Send,
-  Eye, EyeOff, Copy, ShieldCheck, X, Phone, PhoneCall, Pencil, Award, Power, Lock, User, Shield
+  Eye, EyeOff, Copy, ShieldCheck, X, Phone, PhoneCall, Pencil, Award, Power, Lock, User, Shield, Building, Tag, Briefcase, Wallet, MapPin, LogIn, LogOut
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { cn } from '@/lib/utils';
 
 function EmployeeProfileContent() {
+  const { user, isHRTeam, isAdmin, isManager, isAssistantManager } = useAuth();
   const searchParams = useSearchParams();
   const id = searchParams.get('id');
   const router = useRouter();
@@ -27,8 +29,21 @@ function EmployeeProfileContent() {
   const [stats, setStats] = useState<any>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
+  const [allUsers, setAllUsers] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Salary Structure Setup States
+  const [salaryStructure, setSalaryStructure] = useState<any>(null);
+  const [loadingStructure, setLoadingStructure] = useState(false);
+  const [showStructureModal, setShowStructureModal] = useState(false);
+  const [structBasic, setStructBasic] = useState(0);
+  const [structHra, setStructHra] = useState(0);
+  const [structSpecial, setStructSpecial] = useState(0);
+  const [structPf, setStructPf] = useState(0);
+  const [structEsi, setStructEsi] = useState(0);
+  const [structTax, setStructTax] = useState(0);
 
   // Create task modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -74,16 +89,34 @@ function EmployeeProfileContent() {
   const fetchData = useCallback(async () => {
     if (!id) return;
     try {
-      const [empRes, statsRes, tasksRes, companiesRes] = await Promise.all([
+      const [empRes, statsRes, tasksRes, companiesRes, categoriesRes, allUsersRes] = await Promise.all([
         api.get(`/admin/employees/${id}`),
         api.get(`/admin/employees/${id}/stats`),
         api.get(`/tasks?employee_id=${id}`),
-        api.get('/companies')
+        api.get('/companies'),
+        api.get('/categories'),
+        api.get('/admin/employees/all-users')
       ]);
       setEmployee(empRes.data);
       setStats(statsRes.data);
       setTasks(tasksRes.data);
       setCompanies(companiesRes.data);
+      setCategories(categoriesRes.data);
+      setAllUsers(allUsersRes.data);
+
+      try {
+        const structRes = await api.get(`/payroll/structure/${id}`);
+        setSalaryStructure(structRes.data);
+        setStructBasic(structRes.data.basic || 0);
+        setStructHra(structRes.data.hra || 0);
+        setStructSpecial(structRes.data.special_allowance || 0);
+        setStructPf(structRes.data.pf_deduction || 0);
+        setStructEsi(structRes.data.esi_deduction || 0);
+        setStructTax(structRes.data.tax_deduction || 0);
+      } catch (err) {
+        console.log('No salary structure configured for this employee yet.');
+        setSalaryStructure(null);
+      }
     } catch (err: any) {
       console.error('Failed to fetch employee data:', err);
       setError(err.response?.data?.detail || 'Failed to load employee profile');
@@ -120,8 +153,35 @@ function EmployeeProfileContent() {
       reward_points: employee.reward_points,
       is_active: employee.is_active,
       password: '',
+      reporting_manager_id: employee.reporting_manager_id || '',
+      hr_reporting_manager_id: (employee as any).hr_reporting_manager_id || '',
     });
     setShowEditProfileModal(true);
+  };
+
+  const handleSaveStructure = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!id) return;
+    try {
+      await api.post('/payroll/structure', {
+        user_id: id,
+        basic: structBasic,
+        hra: structHra,
+        special_allowance: structSpecial,
+        pf_deduction: structPf,
+        esi_deduction: structEsi,
+        tax_deduction: structTax,
+      });
+      alert('Salary structure saved successfully!');
+      setShowStructureModal(false);
+      
+      // Reload structure
+      const structRes = await api.get(`/payroll/structure/${id}`);
+      setSalaryStructure(structRes.data);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to save salary structure.');
+    }
   };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
@@ -181,6 +241,18 @@ function EmployeeProfileContent() {
       fetchData();
     } catch (err) {
       console.error('Failed to update employee status:', err);
+    }
+  };
+
+  const handleDeleteEmployee = async () => {
+    if (!employee) return;
+    if (!confirm('Are you sure you want to delete this employee? This will soft-delete them.')) return;
+    try {
+      await api.delete(`/admin/employees/${employee.id}`);
+      router.push('/admin/employees');
+    } catch (err) {
+      console.error('Failed to delete employee:', err);
+      alert('Failed to delete employee');
     }
   };
 
@@ -342,6 +414,85 @@ function EmployeeProfileContent() {
                   );
                 })}
               </div>
+
+              {/* Detailed Attendance Logs Table */}
+              {stats?.attendance_history_detailed && stats.attendance_history_detailed.filter((e: any) => e.status === 'present').length > 0 && (
+                <div className="mt-10 border-t border-slate-100 pt-8">
+                  <h4 className="font-bold text-slate-700 text-base mb-5 flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-indigo-500" />
+                    Attendance Log Details (Last 90 Days)
+                  </h4>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-400 text-xs font-bold uppercase tracking-wider">
+                          <th className="py-3 px-4">Date</th>
+                          <th className="py-3 px-4">Login (IST)</th>
+                          <th className="py-3 px-4">Logout (IST)</th>
+                          <th className="py-3 px-4">Duration</th>
+                          <th className="py-3 px-4 text-center">Map</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50">
+                        {stats.attendance_history_detailed
+                          .filter((e: any) => e.status === 'present')
+                          .slice(0, 30)
+                          .map((e: any, i: number) => {
+                            const checkInDate = e.check_in ? new Date(ensureUTC(e.check_in)) : null;
+                            const checkOutDate = e.check_out ? new Date(ensureUTC(e.check_out)) : null;
+                            const durationMs = checkInDate && checkOutDate ? checkOutDate.getTime() - checkInDate.getTime() : null;
+                            const durationHrs = durationMs ? Math.floor(durationMs / 3600000) : null;
+                            const durationMins = durationMs ? Math.floor((durationMs % 3600000) / 60000) : null;
+                            const mapUrl = e.location_in ? `https://www.google.com/maps?q=${e.location_in.lat},${e.location_in.lng}` : null;
+                            return (
+                              <tr key={i} className={cn("hover:bg-slate-50/50 transition-colors", e.is_regularized && "bg-violet-50/30")}>
+                                <td className="py-3 px-4 font-medium text-slate-800 text-xs">
+                                  {checkInDate ? checkInDate.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '—'}
+                                  {e.is_regularized && <span className="ml-1.5 text-[9px] font-black text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full border border-violet-100">REG</span>}
+                                </td>
+                                <td className="py-3 px-4">
+                                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
+                                    <LogIn className="w-3 h-3" />
+                                    {checkInDate ? checkInDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '—'}
+                                  </div>
+                                </td>
+                                <td className="py-3 px-4">
+                                  {checkOutDate ? (
+                                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600">
+                                      <LogOut className="w-3 h-3" />
+                                      {checkOutDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
+                                    </div>
+                                  ) : (
+                                    <span className="text-amber-500 text-xs font-bold">Active</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-xs text-slate-500 font-medium">
+                                  {durationHrs !== null ? `${durationHrs}h ${durationMins}m` : '—'}
+                                </td>
+                                <td className="py-3 px-4 text-center">
+                                  {mapUrl ? (
+                                    <a
+                                      href={mapUrl}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-xs font-bold hover:underline"
+                                      title={e.address_in || 'View on Google Maps'}
+                                    >
+                                      <MapPin className="w-3.5 h-3.5" />
+                                      <span>View</span>
+                                    </a>
+                                  ) : (
+                                    <span className="text-slate-200 text-xs">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -376,6 +527,22 @@ function EmployeeProfileContent() {
               >
                 <Pencil className="w-4 h-4" /> Edit Details
               </button>
+              {(isHRTeam || isAdmin) && (
+                <button
+                  onClick={() => setShowStructureModal(true)}
+                  className="btn bg-white border-slate-200 text-indigo-600 hover:bg-indigo-50 shadow-sm"
+                >
+                  <Wallet className="w-4 h-4 text-indigo-500" /> Salary Structure
+                </button>
+              )}
+              {isHRTeam && (
+                <button
+                  onClick={handleDeleteEmployee}
+                  className="btn btn-danger"
+                >
+                  <Trash2 className="w-4 h-4" /> Delete Employee
+                </button>
+              )}
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="btn btn-primary shadow-lg shadow-indigo-100"
@@ -385,7 +552,7 @@ function EmployeeProfileContent() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {/* 1. Profile Card */}
             <div className="glass rounded-2xl p-6 relative overflow-hidden border border-slate-100 flex flex-col h-full">
               <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -mr-16 -mt-16" />
@@ -433,10 +600,101 @@ function EmployeeProfileContent() {
                   </span>
                   <span className="text-xs font-black text-amber-600">{employee.reward_points} pts</span>
                 </div>
+
+                {(isHRTeam || isAdmin) && (
+                  salaryStructure ? (
+                    <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center justify-between text-xs font-bold text-slate-800">
+                        <span>Salary Structure</span>
+                        <button 
+                          onClick={() => setShowStructureModal(true)} 
+                          className="text-indigo-650 hover:text-indigo-750 text-[11px]"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-500 font-semibold bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <div>Basic: ₹{salaryStructure.basic?.toLocaleString('en-IN')}</div>
+                        <div>HRA: ₹{salaryStructure.hra?.toLocaleString('en-IN')}</div>
+                        <div>Allowance: ₹{salaryStructure.special_allowance?.toLocaleString('en-IN')}</div>
+                        <div className="text-indigo-650 font-bold col-span-2 border-t pt-1 mt-1 flex justify-between">
+                          <span>Gross Salary:</span>
+                          <span>₹{salaryStructure.gross_salary?.toLocaleString('en-IN')}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 pt-4 border-t border-slate-100 text-center">
+                      <p className="text-[11px] text-slate-400 font-bold italic mb-2">No Salary Structure Configured</p>
+                      <button 
+                        onClick={() => setShowStructureModal(true)} 
+                        className="text-xs font-bold text-indigo-650 bg-indigo-50 hover:bg-indigo-100/80 px-3 py-2 rounded-xl border border-indigo-100 transition-colors w-full"
+                      >
+                        Configure Structure
+                      </button>
+                    </div>
+                  )
+                )}
               </div>
             </div>
 
-            {/* 2. Task Status Distribution */}
+            {/* 2. Monthly Task Efficiency Card */}
+            <div className="glass rounded-2xl p-6 relative overflow-hidden border border-slate-100 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/5 rounded-full blur-3xl -mr-16 -mt-16" />
+              <div className="flex items-center gap-2 mb-6">
+                <Trophy className="w-5 h-5 text-indigo-500" />
+                <h3 className="font-bold text-slate-800">Monthly Efficiency</h3>
+              </div>
+
+              <div className="flex-grow flex flex-col items-center justify-center text-center">
+                <div className="relative w-28 h-28 flex items-center justify-center mb-4">
+                  {/* Outer circle track */}
+                  <svg className="absolute w-full h-full transform -rotate-90">
+                    <circle
+                      cx="56"
+                      cy="56"
+                      r="48"
+                      className="stroke-slate-100"
+                      strokeWidth="8"
+                      fill="transparent"
+                    />
+                    <circle
+                      cx="56"
+                      cy="56"
+                      r="48"
+                      className={cn(
+                        "transition-all duration-1000 ease-out",
+                        stats?.efficiency_rate >= 80 ? "stroke-emerald-500" :
+                        stats?.efficiency_rate >= 60 ? "stroke-indigo-500" : "stroke-rose-500"
+                      )}
+                      strokeWidth="8"
+                      fill="transparent"
+                      strokeDasharray={2 * Math.PI * 48}
+                      strokeDashoffset={2 * Math.PI * 48 * (1 - (stats?.efficiency_rate ?? 0) / 100)}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="text-center">
+                    <span className="text-3xl font-black text-slate-800 tracking-tighter">
+                      {stats?.efficiency_rate ?? 0}%
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-2 w-full mt-2">
+                  <div className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider w-fit mx-auto border bg-slate-50 text-slate-600">
+                    {stats?.efficiency_rate >= 80 ? '⭐ Elite Performer' :
+                     stats?.efficiency_rate >= 65 ? '📈 Strong Pace' :
+                     stats?.due_this_month === 0 ? '💤 Idle' : '⚠️ Attention Required'}
+                  </div>
+                  <p className="text-xs text-slate-400 font-bold tracking-tight mt-1">
+                    {stats?.completed_this_month ?? 0} of {stats?.due_this_month ?? 0} tasks completed this month
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Task Status Distribution */}
             <div className="glass rounded-2xl p-6 border border-slate-100 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center gap-2 mb-6">
                 <Activity className="w-5 h-5 text-indigo-500" />
@@ -503,7 +761,7 @@ function EmployeeProfileContent() {
               )}
             </div>
 
-            {/* 3. Priority Distribution */}
+            {/* 4. Priority Distribution */}
             <div className="glass rounded-2xl p-6 border border-slate-100 flex flex-col h-full shadow-sm hover:shadow-md transition-shadow">
               <div className="flex items-center gap-2 mb-6">
                 <ShieldCheck className="w-5 h-5 text-indigo-500" />
@@ -1039,7 +1297,7 @@ function EmployeeProfileContent() {
                 </label>
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                   <div className="max-h-32 overflow-y-auto p-2 custom-scrollbar grid grid-cols-2 gap-1">
-                    {categories.filter(c => c.is_active).map(cat => {
+                    {categories.filter(c => c.is_active).map((cat: any) => {
                       const isSelected = (editingTask.category_ids || []).includes(cat.id);
                       return (
                         <button
@@ -1200,6 +1458,116 @@ function EmployeeProfileContent() {
                 </div>
               </div>
 
+              <div className="bg-slate-50/50 rounded-2xl p-5 border border-slate-100 space-y-4 my-4">
+                <div className="text-[10px] font-black uppercase text-indigo-500 tracking-wider mb-2">
+                  Reporting Requirements for "{editEmployeeData.role.replace(/_/g, ' ').toUpperCase()}"
+                </div>
+
+                {/* Rule 1: Employee must select Assistant Manager & Assistant HR Manager */}
+                {editEmployeeData.role === 'employee' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1.5">Assistant Manager Partner</label>
+                      <select
+                        value={editEmployeeData.reporting_manager_id}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, reporting_manager_id: e.target.value })}
+                        className="select h-11 rounded-xl border-slate-200 bg-white"
+                        required
+                      >
+                        <option value="">-- Choose Assistant Manager --</option>
+                        {allUsers.filter(u => u.role === 'assistant_manager' && u.id !== employee.id).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1.5">Assistant HR Manager Partner</label>
+                      <select
+                        value={editEmployeeData.hr_reporting_manager_id}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, hr_reporting_manager_id: e.target.value })}
+                        className="select h-11 rounded-xl border-slate-200 bg-white"
+                        required
+                      >
+                        <option value="">-- Choose Asst HR Manager --</option>
+                        {allUsers.filter(u => u.role === 'assistant_hr_manager' && u.id !== employee.id).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Rule 2: Assistant Manager: Must select Manager, Optional HR Manager */}
+                {editEmployeeData.role === 'assistant_manager' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1.5">Reporting Manager (Manager) *</label>
+                      <select
+                        value={editEmployeeData.reporting_manager_id}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, reporting_manager_id: e.target.value })}
+                        className="select h-11 rounded-xl border-slate-200 bg-white"
+                        required
+                      >
+                        <option value="">-- Choose Manager --</option>
+                        {allUsers.filter(u => u.role === 'manager' && u.id !== employee.id).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1.5">HR Manager Link (Optional)</label>
+                      <select
+                        value={editEmployeeData.hr_reporting_manager_id}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, hr_reporting_manager_id: e.target.value })}
+                        className="select h-11 rounded-xl border-slate-200 bg-white"
+                      >
+                        <option value="">-- Choose HR Manager --</option>
+                        {allUsers.filter(u => u.role === 'hr_manager' && u.id !== employee.id).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Rule 3: Assistant HR Manager: Must select HR Manager, Optional Manager */}
+                {editEmployeeData.role === 'assistant_hr_manager' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1.5">Reporting HR Manager (HR Manager) *</label>
+                      <select
+                        value={editEmployeeData.hr_reporting_manager_id}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, hr_reporting_manager_id: e.target.value })}
+                        className="select h-11 rounded-xl border-slate-200 bg-white"
+                        required
+                      >
+                        <option value="">-- Choose HR Manager --</option>
+                        {allUsers.filter(u => u.role === 'hr_manager' && u.id !== employee.id).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1.5">Manager Link (Optional)</label>
+                      <select
+                        value={editEmployeeData.reporting_manager_id}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, reporting_manager_id: e.target.value })}
+                        className="select h-11 rounded-xl border-slate-200 bg-white"
+                      >
+                        <option value="">-- Choose Manager --</option>
+                        {allUsers.filter(u => u.role === 'manager' && u.id !== employee.id).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {(editEmployeeData.role === 'manager' || editEmployeeData.role === 'hr_manager' || editEmployeeData.role === 'admin') && (
+                  <p className="text-xs text-muted-foreground italic">This role is top-level and does not require hierarchical reporting assignments.</p>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                   <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Employment Role</label>
@@ -1214,6 +1582,10 @@ function EmployeeProfileContent() {
                     >
                       <option value="employee">Employee</option>
                       <option value="admin">Admin</option>
+                      <option value="hr_manager">HR Manager</option>
+                      <option value="assistant_hr_manager">Assistant HR Manager</option>
+                      <option value="manager">Manager</option>
+                      <option value="assistant_manager">Assistant Manager</option>
                     </select>
                   </div>
                 </div>
@@ -1257,6 +1629,113 @@ function EmployeeProfileContent() {
           </div>
         </div>
       )}
+
+      {/* Salary Structure Modal */}
+      {showStructureModal && (
+        <div className="modal-overlay" onClick={() => setShowStructureModal(false)}>
+          <div className="modal-content max-w-xl bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-100 p-6 md:p-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-100">
+                  <Wallet className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 tracking-tight">Salary Structure Setup</h2>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-[0.2em] mt-0.5">Employee: {employee?.name}</p>
+                </div>
+              </div>
+              <button onClick={() => setShowStructureModal(false)} className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-all hover:text-slate-600">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveStructure} className="space-y-5">
+              <div className="text-[11px] font-black uppercase text-indigo-500 tracking-wider mb-2">Earnings Breakdown (Monthly)</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">Basic Salary (₹)</label>
+                  <input
+                    type="number"
+                    value={structBasic}
+                    onChange={(e) => setStructBasic(parseFloat(e.target.value) || 0)}
+                    className="input h-12 rounded-2xl font-bold text-slate-700 border-slate-200"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">HRA (₹)</label>
+                  <input
+                    type="number"
+                    value={structHra}
+                    onChange={(e) => setStructHra(parseFloat(e.target.value) || 0)}
+                    className="input h-12 rounded-2xl font-bold text-slate-700 border-slate-200"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">Allowance (₹)</label>
+                  <input
+                    type="number"
+                    value={structSpecial}
+                    onChange={(e) => setStructSpecial(parseFloat(e.target.value) || 0)}
+                    className="input h-12 rounded-2xl font-bold text-slate-700 border-slate-200"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="text-[11px] font-black uppercase text-rose-500 tracking-wider mb-2 mt-4">Deductions Breakdown (Monthly)</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">PF Deduction (₹)</label>
+                  <input
+                    type="number"
+                    value={structPf}
+                    onChange={(e) => setStructPf(parseFloat(e.target.value) || 0)}
+                    className="input h-12 rounded-2xl font-bold text-slate-700 border-slate-200"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">ESI Deduction (₹)</label>
+                  <input
+                    type="number"
+                    value={structEsi}
+                    onChange={(e) => setStructEsi(parseFloat(e.target.value) || 0)}
+                    className="input h-12 rounded-2xl font-bold text-slate-700 border-slate-200"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">Income Tax (₹)</label>
+                  <input
+                    type="number"
+                    value={structTax}
+                    onChange={(e) => setStructTax(parseFloat(e.target.value) || 0)}
+                    className="input h-12 rounded-2xl font-bold text-slate-700 border-slate-200"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center justify-between text-xs font-bold text-slate-700 mt-4">
+                <div>Gross Earnings: <span className="text-indigo-600 text-sm font-black ml-1">₹{(structBasic + structHra + structSpecial).toLocaleString('en-IN')}</span></div>
+                <div>Total Deductions: <span className="text-rose-600 text-sm font-black ml-1">₹{(structPf + structEsi + structTax).toLocaleString('en-IN')}</span></div>
+                <div>Net Salary: <span className="text-emerald-600 text-sm font-black ml-1">₹{Math.max(0, (structBasic + structHra + structSpecial) - (structPf + structEsi + structTax)).toLocaleString('en-IN')}</span></div>
+              </div>
+
+              <div className="flex gap-4 pt-6">
+                <button type="button" onClick={() => setShowStructureModal(false)} className="btn btn-secondary flex-1 h-14 rounded-2xl font-bold border-slate-200 text-slate-500">
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary flex-1 h-14 rounded-2xl font-bold shadow-xl bg-indigo-600 hover:bg-indigo-700 text-white">
+                  Save Structure
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1284,7 +1763,7 @@ function MonthCalendar({ year, month, history }: { year: number, month: number, 
     const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
     const isFuture = date > today;
 
-    const record = history.find(h => {
+    const record = history.find((h: any) => {
       const hDate = new Date(h.date);
       return hDate.getFullYear() === year && hDate.getMonth() === month && hDate.getDate() === d;
     });
@@ -1319,7 +1798,21 @@ function MonthCalendar({ year, month, history }: { year: number, month: number, 
       colorClass = 'bg-slate-100 text-slate-300';
     }
 
-    days.push({ day: d, status, symbol, colorClass, isFuture });
+    // Build tooltip
+    let tooltip = `${status.toUpperCase()}`;
+    if (record?.check_in) {
+      const ci = new Date(ensureUTC(record.check_in));
+      tooltip += `\nIn: ${ci.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`;
+    }
+    if (record?.check_out) {
+      const co = new Date(ensureUTC(record.check_out));
+      tooltip += `\nOut: ${co.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`;
+    }
+    if (record?.is_regularized) {
+      tooltip += `\n[Regularized]`;
+    }
+
+    days.push({ day: d, status, symbol, colorClass, isFuture, record, tooltip });
   }
 
   return (
@@ -1332,14 +1825,21 @@ function MonthCalendar({ year, month, history }: { year: number, month: number, 
         ))}
         {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} />)}
         {days.map(d => (
-          <div key={d.day} className={cn(
-            "aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-black relative transition-all group",
-            d.colorClass,
-            d.isFuture && "opacity-20"
-          )}>
+          <div
+            key={d.day}
+            className={cn(
+              "aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-black relative transition-all group cursor-default",
+              d.colorClass,
+              d.isFuture && "opacity-20"
+            )}
+            title={d.tooltip}
+          >
             <span className="text-[10px] opacity-40 absolute top-1 left-1.5">{d.day}</span>
             {d.symbol && (
               <span className="text-sm mt-1">{d.symbol}</span>
+            )}
+            {d.record?.is_regularized && (
+              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-violet-500 border border-white" title="Regularized" />
             )}
           </div>
         ))}

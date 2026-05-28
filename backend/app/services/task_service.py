@@ -6,7 +6,7 @@ from app.models.user import User
 from app.models.company import Company
 from app.models.category import Category
 from app.models.activity_log import ActivityLog
-from app.services.reward_service import check_and_award_reward
+from app.services.reward_service import apply_performance_score
 from app.models.notification import Notification
 from beanie import PydanticObjectId
 from datetime import datetime
@@ -168,12 +168,12 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
 
     # Handle completion
     new_status = update_data.get("status")
-    if new_status == TaskStatus.COMPLETED and task.status != TaskStatus.COMPLETED:
+    if new_status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE, TaskStatus.DELAYED] and task.status not in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE, TaskStatus.DELAYED]:
         now = datetime.utcnow()
         update_data["completed_at"] = now
-        # If past deadline, set status to COMPLETED_LATE
+        # If past deadline, set status to DELAYED or COMPLETED_LATE
         if task.deadline < now:
-            update_data["status"] = TaskStatus.COMPLETED_LATE
+            update_data["status"] = TaskStatus.DELAYED
 
     update_data["updated_at"] = datetime.utcnow()
     await task.set(update_data)
@@ -181,17 +181,20 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
     # Reload the task
     task = await Task.get(PydanticObjectId(task_id))
 
-    # Check for reward if task was just completed (only on-time completion gets reward)
-    final_status = update_data.get("status", task.status)
-    if final_status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE] and task.status not in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE]:
-        if final_status == TaskStatus.COMPLETED:
-            await check_and_award_reward(task)
+    # Apply Performance Scoring
+    final_status = task.status
+    if final_status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE, TaskStatus.DELAYED] and not task.reward_given:
+        await apply_performance_score(task, is_rejection=False)
+    elif final_status == TaskStatus.REJECTED and not task.reward_given:
+        await apply_performance_score(task, is_rejection=True)
 
+    # Log actions
+    if final_status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE, TaskStatus.DELAYED]:
         await ActivityLog(
             user_id=task.assigned_to,
             action="task_completed",
             task_id=task.id,
-            details=f"Work '{task.work_description[:50]}...' completed ({final_status})",
+            details=f"Work '{task.work_description[:50]}...' completed ({final_status.value})",
         ).insert()
 
         # Notify creator if completed by employee
@@ -216,11 +219,13 @@ async def delete_task(task_id: str) -> bool:
     return True
 
 
-async def get_task_counts(user_id: Optional[str] = None):
+async def get_task_counts(user_id: Optional[str] = None, user_ids: Optional[list] = None):
     """Get task count summary using a single aggregation pipeline."""
     base_query = {}
     if user_id:
         base_query["assigned_to"] = PydanticObjectId(user_id)
+    elif user_ids is not None:
+        base_query["assigned_to"] = {"$in": user_ids}
 
     # Auto-update overdue tasks first (this still requires an update_many or individual updates)
     now = datetime.utcnow()

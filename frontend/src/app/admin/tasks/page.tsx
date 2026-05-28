@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import api from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 import { Task, Employee, Company, Category } from '@/types';
 import UserLink from '@/components/UserLink';
 import { formatDateTime, getStatusColor, getStatusLabel, getPriorityColor, timeAgo, formatPreciseDateTime, cn } from '@/lib/utils';
@@ -122,6 +123,8 @@ function MultiSelectDropdown({ label, icon: Icon, options, selectedIds, onChange
 }
 
 export default function AdminTasksPage() {
+  const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'team' | 'my'>('team');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -180,6 +183,7 @@ export default function AdminTasksPage() {
   const [confirmingTask, setConfirmingTask] = useState<Task | null>(null);
   const [isConfirmed, setIsConfirmed] = useState(false);
   const [completionRemark, setCompletionRemark] = useState('');
+  const [qualityMultiplier, setQualityMultiplier] = useState(1.0);
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -229,6 +233,9 @@ export default function AdminTasksPage() {
   // Client-side filtering
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
+      if (activeTab === 'my') {
+        if (task.assigned_to !== user?.id) return false;
+      }
       if (searchQuery && !task.work_description.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       if (statusFilter && task.status !== statusFilter) return false;
       if (priorityFilter && task.priority !== priorityFilter) return false;
@@ -242,7 +249,7 @@ export default function AdminTasksPage() {
       }
       return true;
     });
-  }, [tasks, searchQuery, statusFilter, priorityFilter, employeeFilter, companyFilter, deadlineFrom, deadlineTo]);
+  }, [tasks, activeTab, user, searchQuery, statusFilter, priorityFilter, employeeFilter, companyFilter, deadlineFrom, deadlineTo]);
 
   const hasActiveFilters = searchQuery || statusFilter || priorityFilter || employeeFilter || companyFilter || deadlineFrom || deadlineTo;
 
@@ -356,17 +363,18 @@ export default function AdminTasksPage() {
   const confirmCompletion = async () => {
     if (!confirmingTask || !isConfirmed) return;
     try {
+      const payload: any = {
+        status: 'completed',
+        quality_multiplier: qualityMultiplier
+      };
       if (completionRemark.trim()) {
-        await api.put(`/tasks/${confirmingTask.id}`, {
-          status: 'completed',
-          remarks: completionRemark.trim()
-        });
-      } else {
-        await handleStatusUpdate(confirmingTask.id, 'completed');
+        payload.remarks = completionRemark.trim();
       }
+      await api.put(`/tasks/${confirmingTask.id}`, payload);
       setShowCompleteModal(false);
       setConfirmingTask(null);
       setCompletionRemark('');
+      setQualityMultiplier(1.0);
       fetchTasks();
     } catch (err) {
       console.error('Failed to complete task:', err);
@@ -420,6 +428,30 @@ export default function AdminTasksPage() {
         >
           <Plus className="w-4 h-4" />
           Assign Work
+        </button>
+      </div>
+
+      {/* Tab Switcher */}
+      <div className="flex border-b border-slate-200 mb-6">
+        <button
+          onClick={() => setActiveTab('team')}
+          className={`py-3 px-6 text-sm font-bold border-b-2 transition-all ${
+            activeTab === 'team'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Team Tasks
+        </button>
+        <button
+          onClick={() => setActiveTab('my')}
+          className={`py-3 px-6 text-sm font-bold border-b-2 transition-all ${
+            activeTab === 'my'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          My Tasks
         </button>
       </div>
 
@@ -1354,6 +1386,19 @@ export default function AdminTasksPage() {
                     <p className="text-xs text-indigo-500/80 font-medium mt-0.5">Confirming that this task is fully completed as per requirements.</p>
                   </div>
                 </label>
+              </div>
+
+              <div>
+                <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wide">QA Quality Rating / Multiplier</label>
+                <select
+                  value={qualityMultiplier}
+                  onChange={(e) => setQualityMultiplier(parseFloat(e.target.value) || 1.0)}
+                  className="w-full text-sm border border-slate-200 rounded-xl p-2.5 bg-slate-50 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                >
+                  <option value="1.0">Standard Performance (1.0x)</option>
+                  <option value="1.2">Exemplary Performance (1.2x)</option>
+                  <option value="0.8">Rework Required (0.8x)</option>
+                </select>
               </div>
 
               <div>

@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { Attendance } from '@/types';
-import { MapPin, Clock, LogIn, LogOut, History, Calendar, AlertCircle, Loader2, CheckCircle2, Shield, ShieldAlert, ShieldCheck, Timer, AlertTriangle } from 'lucide-react';
-import { formatDateTime, formatPreciseDateTime, cn, ensureUTC } from '@/lib/utils';
+import { MapPin, Clock, LogIn, LogOut, History, Calendar, AlertCircle, Loader2, CheckCircle2, Shield, ShieldAlert, ShieldCheck, Timer, AlertTriangle, RefreshCw } from 'lucide-react';
+import { formatDateTime, formatPreciseDateTime, formatDate, cn, ensureUTC } from '@/lib/utils';
+import { formatDateTime as fmtDateTime } from '@/lib/utils';
 
 // Simple device fingerprint generator
 function generateFingerprint(): string {
@@ -43,14 +44,27 @@ interface GeofenceStatus {
   min_session_minutes?: number;
 }
 
+interface RegularizationRequest {
+  id: string;
+  attendance_id: string;
+  requested_check_in: string | null;
+  requested_check_out: string | null;
+  reason: string;
+  status: string;
+  comments: string | null;
+  created_at: string;
+}
+
 export default function AttendancePage() {
   const { user } = useAuth();
   const [history, setHistory] = useState<Attendance[]>([]);
   const [currentSession, setCurrentSession] = useState<Attendance | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [corrections, setCorrections] = useState<RegularizationRequest[]>([]);
+  const [correctionsLoading, setCorrectionsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [loading, setLoading] = useState(true);
   const [geofenceStatus, setGeofenceStatus] = useState<GeofenceStatus | null>(null);
   const [sessionTimer, setSessionTimer] = useState('');
   const [canCheckout, setCanCheckout] = useState(true);
@@ -83,6 +97,7 @@ export default function AttendancePage() {
 
   useEffect(() => {
     fetchAttendance();
+    loadCorrections();
     const handleUpdate = () => fetchAttendance();
     window.addEventListener('attendanceUpdated', handleUpdate);
 
@@ -118,31 +133,51 @@ export default function AttendancePage() {
     return () => window.removeEventListener('attendanceUpdated', handleUpdate);
   }, [fetchAttendance, checkGeofence]);
 
-  // Session duration timer
   useEffect(() => {
-    if (currentSession && !currentSession.check_out) {
-      const updateTimer = () => {
-        const checkinTime = new Date(ensureUTC(currentSession.check_in)).getTime();
-        const now = Date.now();
-        const diffMs = now - checkinTime;
-        const hours = Math.floor(diffMs / 3600000);
-        const minutes = Math.floor((diffMs % 3600000) / 60000);
-        const seconds = Math.floor((diffMs % 60000) / 1000);
-        setSessionTimer(`${hours.toString().padStart(2,'0')}:${minutes.toString().padStart(2,'0')}:${seconds.toString().padStart(2,'0')}`);
-        
-        // Check minimum session
-        const minMinutes = geofenceStatus?.min_session_minutes || 30;
-        const sessionMinutes = diffMs / 60000;
-        setCanCheckout(sessionMinutes >= minMinutes);
-      };
-      updateTimer();
-      timerRef.current = setInterval(updateTimer, 1000);
-      return () => { if (timerRef.current) clearInterval(timerRef.current); };
-    } else {
+    if (!currentSession) {
       setSessionTimer('');
       setCanCheckout(true);
+      return;
     }
+
+    const updateTimer = () => {
+      const start = new Date(ensureUTC(currentSession.check_in)).getTime();
+      const now = new Date().getTime();
+      const diffMs = now - start;
+      const diffSec = Math.floor(diffMs / 1000);
+
+      if (diffSec < 0) {
+        setSessionTimer('00:00:00');
+      } else {
+        const hrs = Math.floor(diffSec / 3600);
+        const mins = Math.floor((diffSec % 3600) / 60);
+        const secs = diffSec % 60;
+        const pad = (num: number) => String(num).padStart(2, '0');
+        setSessionTimer(`${pad(hrs)}:${pad(mins)}:${pad(secs)}`);
+      }
+
+      const minMinutes = geofenceStatus?.min_session_minutes || 0;
+      const elapsedMinutes = diffMs / 1000 / 60;
+      setCanCheckout(elapsedMinutes >= minMinutes);
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
   }, [currentSession, geofenceStatus]);
+
+  const loadCorrections = async () => {
+    try {
+      setCorrectionsLoading(true);
+      const res = await api.get('/regularization/my');
+      setCorrections(res.data);
+    } catch (err) {
+      console.error('Failed to fetch correction audits:', err);
+    } finally {
+      setCorrectionsLoading(false);
+    }
+  };
 
   const handleAction = async (type: 'check-in' | 'check-out') => {
     if (!location) {
@@ -385,19 +420,19 @@ export default function AttendancePage() {
                   (log.flags?.length > 0) && "border-l-2 border-l-amber-400"
                 )}>
                   <td className="px-6 py-4 font-medium">
-                    {new Date(ensureUTC(log.check_in)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                    {formatDate(log.check_in)}
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
                       <LogIn className="w-3.5 h-3.5 text-emerald-500" />
-                      {new Date(ensureUTC(log.check_in)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                      {formatDateTime(log.check_in)}
                     </div>
                   </td>
                   <td className="px-6 py-4">
                     {log.check_out ? (
                       <div className="flex items-center gap-2">
                         <LogOut className={`w-3.5 h-3.5 ${log.is_auto_closed ? 'text-amber-500' : 'text-rose-500'}`} />
-                        {new Date(ensureUTC(log.check_out)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                        {formatDateTime(log.check_out)}
                         {log.is_auto_closed && <span className="text-[9px] font-black text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">AUTO</span>}
                       </div>
                     ) : (
@@ -425,11 +460,24 @@ export default function AttendancePage() {
                     </div>
                   </td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex flex-col items-end gap-0.5">
-                      <div className="flex items-center gap-1 text-indigo-500 hover:underline cursor-help text-xs">
-                        <MapPin className="w-3.5 h-3.5" />
-                        View
-                      </div>
+                    <div className="flex flex-col items-end gap-1">
+                      {log.location_in ? (
+                        <a
+                          href={`https://www.google.com/maps?q=${log.location_in.lat},${log.location_in.lng}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-indigo-500 hover:text-indigo-700 hover:underline text-xs font-bold transition-colors"
+                          title={log.address_in || `${log.location_in.lat.toFixed(5)}, ${log.location_in.lng.toFixed(5)}`}
+                        >
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>Map View</span>
+                        </a>
+                      ) : (
+                        <div className="flex items-center gap-1 text-slate-300 text-xs cursor-not-allowed" title="No GPS data captured">
+                          <MapPin className="w-3.5 h-3.5" />
+                          <span>No GPS</span>
+                        </div>
+                      )}
                       {log.location_drift_km !== null && log.location_drift_km !== undefined && (
                         <span className={cn(
                           "text-[9px] font-bold",
@@ -440,6 +488,7 @@ export default function AttendancePage() {
                       )}
                     </div>
                   </td>
+
                 </tr>
               ))}
               {history.length === 0 && (
@@ -452,6 +501,59 @@ export default function AttendancePage() {
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Correction Audits Section */}
+      <div className="glass rounded-2xl p-6 border border-border shadow-sm mt-8">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-lg font-bold text-slate-800">Correction Audits</h2>
+          <button onClick={loadCorrections} className="p-2 hover:bg-slate-50 rounded-lg text-slate-400 hover:text-slate-650 transition-colors">
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
+        {correctionsLoading ? (
+          <div className="flex justify-center items-center py-8">
+            <Loader2 className="w-8 h-8 animate-spin" />
+          </div>
+        ) : corrections.length === 0 ? (
+          <div className="text-center py-8 text-slate-400">No correction audits found.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm border-collapse">
+              <thead className="bg-slate-50 text-muted-foreground font-medium border-b border-border">
+                <tr>
+                  <th className="py-3 px-4">Requested In</th>
+                  <th className="py-3 px-4">Requested Out</th>
+                  <th className="py-3 px-4">Reason</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4">Comments</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {corrections.map((c) => (
+                  <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="py-2 px-4 text-xs">
+                      {c.requested_check_in ? formatDateTime(c.requested_check_in) : '—'}
+                    </td>
+                    <td className="py-2 px-4 text-xs">
+                      {c.requested_check_out ? formatDateTime(c.requested_check_out) : '—'}
+                    </td>
+                    <td className="py-2 px-4 text-xs text-slate-600 max-w-xs truncate">{c.reason}</td>
+                    <td className="py-2 px-4">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold capitalize ${
+                        c.status === 'pending' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                        c.status === 'verified' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                        c.status === 'approved' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                        'bg-rose-50 text-rose-700 border border-rose-200'
+                      }`}>{c.status}</span>
+                    </td>
+                    <td className="py-2 px-4 text-xs text-slate-450 italic max-w-xs truncate">{c.comments || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -492,7 +594,7 @@ function MonthCalendar({ year, month, history }: { year: number, month: number, 
 
     if (logs.length > 0) {
       const firstLog = logs[logs.length - 1];
-      const checkInTime = new Date(ensureUTC(firstLog.check_in)).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+      const checkInTime = new Date(ensureUTC(firstLog.check_in)).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
       
       if (checkInTime > workStartTime) {
         status = 'late'; symbol = 'L'; colorClass = 'bg-amber-500 text-white'; stats.late++; stats.present++;

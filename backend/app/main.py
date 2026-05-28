@@ -7,7 +7,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database.connection import init_db
-from app.routes import auth, employees, tasks, dashboard, reports, companies, attendance, search, holidays, notifications, categories
+
+
+
+
+from app.routes import auth, employees, tasks, dashboard, reports, companies, attendance, search, holidays, notifications, categories, leaves, regularization, payroll, chat, ai, simulation
 
 
 import asyncio
@@ -16,9 +20,11 @@ from app.middleware import exception_handler_middleware
 
 async def auto_checkout_stale_sessions():
     """Auto-close attendance sessions that are still open past work hours."""
-    from app.models.attendance import Attendance
+    from app.models.attendance import Attendance, ist_now
     from app.models.company import Company
     from datetime import datetime, timedelta
+    import logging
+    _logger = logging.getLogger(__name__)
     
     try:
         # Find all open sessions
@@ -29,31 +35,37 @@ async def auto_checkout_stale_sessions():
             if not company or not company.auto_checkout_enabled:
                 continue
             
-            # Parse work_end_time
+            # Parse work_end_time robustly
             try:
-                end_parts = company.work_end_time.replace("AM", "").replace("PM", "").split(":")
+                wt = company.work_end_time.strip().upper()
+                is_pm = "PM" in wt
+                wt_clean = wt.replace("AM", "").replace("PM", "").strip()
+                end_parts = wt_clean.split(":")
                 end_hour = int(end_parts[0])
                 end_min = int(end_parts[1]) if len(end_parts) > 1 else 0
-                if "PM" in company.work_end_time.upper() and end_hour < 12:
+                if is_pm and end_hour < 12:
                     end_hour += 12
             except Exception:
-                end_hour, end_min = 18, 0  # Default 6 PM
+                end_hour, end_min = 18, 0  # Default 6 PM IST
             
-            # Check if session has been open past work_end_time + 1 hour
-            local_now = datetime.utcnow() + timedelta(hours=5, minutes=30)
-            session_age_hours = (datetime.utcnow() - session.check_in).total_seconds() / 3600
+            # Use ist_now() consistently for all time comparisons
+            local_now = ist_now()
+            # Compute session age against IST check-in time
+            session_check_in_naive = session.check_in.replace(tzinfo=None)
+            session_age_hours = (local_now.replace(tzinfo=None) - session_check_in_naive).total_seconds() / 3600
             
-            # Auto-close if past end time + 1h OR session > 14 hours
+            # Auto-close if: current IST hour is past (end + 1h) OR session > 14h
             if local_now.hour > end_hour + 1 or session_age_hours > 14:
-                session.check_out = datetime.utcnow()
+                session.check_out = local_now.replace(tzinfo=None)
                 session.is_auto_closed = True
                 session.remarks = (session.remarks or "") + " [Auto-closed by system]"
                 if "auto_closed" not in session.flags:
                     session.flags.append("auto_closed")
                 await session.save()
-                print(f"[AUTO-CHECKOUT] Closed stale session for user {session.user_id}")
+                _logger.info(f"[AUTO-CHECKOUT] Closed stale session for user {session.user_id}")
     except Exception as e:
-        print(f"Error in auto-checkout: {e}")
+        _logger.error(f"Error in auto-checkout: {e}")
+
 
 async def run_periodic_tasks():
     """Background loop for recurring tasks."""
@@ -81,6 +93,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Create uploads directory if not exists
+os.makedirs("uploads/chat", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
 # Register custom exception handler
 app.middleware("http")(exception_handler_middleware)
 
@@ -105,6 +124,14 @@ app.include_router(holidays.router, prefix="/holidays", tags=["Holiday Managemen
 app.include_router(search.router)
 app.include_router(notifications.router)
 app.include_router(categories.router)
+app.include_router(leaves.router)
+app.include_router(regularization.router)
+app.include_router(payroll.router)
+app.include_router(chat.router)
+app.include_router(ai.router)
+app.include_router(simulation.router)
+
+
 
 @app.get("/", tags=["Health"])
 async def health_check():

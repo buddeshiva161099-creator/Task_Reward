@@ -16,6 +16,7 @@ class NotificationResponse(NotificationBase):
     id: str
     user_id: str
     sender_id: Optional[str] = None
+    chat_group_id: Optional[str] = None
     is_read: bool
     created_at: str
 
@@ -25,6 +26,7 @@ class NotificationResponse(NotificationBase):
             id=str(notification.id),
             user_id=str(notification.user_id),
             sender_id=str(notification.sender_id) if notification.sender_id else None,
+            chat_group_id=str(notification.chat_group_id) if getattr(notification, "chat_group_id", None) else None,
             title=notification.title,
             message=notification.message,
             type=notification.type,
