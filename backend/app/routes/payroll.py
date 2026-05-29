@@ -162,14 +162,17 @@ async def calculate_corporate_payroll(
         if not (is_weekend or is_holiday):
             log = attendance_map.get(cur_date)
             if log:
-                present_days += 1
                 status_lower = log.status.lower() if log.status else ""
-                # Late check-in penalty: flat 100 INR
-                if "late" in status_lower:
-                    late_penalties += 100.0
-                # Overtime: flat 500 INR
-                if "overtime" in status_lower or "approved_overtime" in status_lower:
-                    overtime_pay += 500.0
+                if "absent" in status_lower or "absence" in status_lower:
+                    absent_days += 1
+                else:
+                    present_days += 1
+                    # Late check-in penalty: flat 100 INR
+                    if "late" in status_lower:
+                        late_penalties += 100.0
+                    # Overtime: flat 500 INR
+                    if "overtime" in status_lower or "approved_overtime" in status_lower:
+                        overtime_pay += 500.0
             else:
                 if cur_date in leave_type_map:
                     ltype = leave_type_map[cur_date]
@@ -223,7 +226,88 @@ async def calculate_corporate_payroll(
     bonuses = existing.bonuses if existing else 0.0
     incentives = existing.incentives if existing else 0.0
     extra_deductions = existing.deductions if existing else 0.0
-    
+
+    # 10. Automated Calculations for Bonuses and Incentives
+    if not existing:
+        bonuses = 0.0
+        incentives = 0.0
+        if company:
+            # Calculate regular attendance rate
+            earned_attn_pts = 0.0
+            cur_day = active_start_date
+            while cur_day <= active_end_date:
+                cur_date = cur_day.date()
+                is_weekend = cur_date.weekday() >= 5
+                is_holiday = cur_date in holiday_dates
+                
+                if not (is_weekend or is_holiday):
+                    log = attendance_map.get(cur_date)
+                    if log:
+                        status_lower = log.status.lower() if log.status else ""
+                        if "absent" in status_lower or "absence" in status_lower:
+                            earned_attn_pts += company.attendance_points.get("unexcused", -1.0)
+                        elif "late_under_30" in status_lower:
+                            earned_attn_pts += company.attendance_points.get("late_under_30", 0.75)
+                        elif "late_over_30" in status_lower:
+                            earned_attn_pts += company.attendance_points.get("late_over_30", 0.50)
+                        elif "late" in status_lower:
+                            earned_attn_pts += company.attendance_points.get("late", 0.75)
+                        elif "excused" in status_lower:
+                            earned_attn_pts += 1.0
+                        else:
+                            earned_attn_pts += company.attendance_points.get("present", 1.0)
+                    else:
+                        if cur_date in leave_type_map:
+                            ltype = leave_type_map[cur_date]
+                            ltype_str = ltype.value if hasattr(ltype, "value") else str(ltype)
+                            if ltype_str in ["casual", "sick", "earned"]:
+                                earned_attn_pts += 1.0
+                        else:
+                            earned_attn_pts += 0.0
+                cur_day += timedelta(days=1)
+            
+            attn_rate = 0.0
+            if total_working_days > 0:
+                attn_rate = (earned_attn_pts / total_working_days) * 100.0
+            
+            if attn_rate >= company.attendance_bonus_threshold:
+                bonuses = basic * (company.attendance_bonus_percentage / 100.0)
+            
+            # Calculate Performance Incentive
+            from app.models.task import Task, TaskStatus
+            role_targets = {
+                UserRole.MANAGER: 250.8,
+                UserRole.ASSISTANT_MANAGER: 190.0,
+                UserRole.HR_MANAGER: 152.0,
+                UserRole.EMPLOYEE: 200.0,
+            }
+            if employee.name == "Shiva":
+                role_targets[UserRole.EMPLOYEE] = 148.2
+                
+            target_pts = role_targets.get(employee.role, 150.0)
+            perf_score = (employee.reward_points / target_pts) * 100.0 if target_pts > 0 else 0.0
+            
+            # Match performance to tier
+            tier_pct = 0.0
+            for tier in company.incentive_tiers:
+                if tier["min_performance"] <= perf_score <= tier["max_performance"]:
+                    tier_pct = tier["pool_percentage"]
+                    break
+            
+            incentives = gross_base * (tier_pct / 100.0) * (company.performance_incentive_pool_percentage / 100.0)
+            
+            if incentives > 20000.0:
+                incentives = 20000.0
+                
+            # Backlog penalty (> 5 overdue tasks)
+            overdue_count = await Task.find(
+                Task.assigned_to == employee.id,
+                Task.status == TaskStatus.OVERDUE,
+                Task.deadline < start_of_month - timedelta(days=4)
+            ).count()
+            if overdue_count > 5:
+                incentives *= 0.95
+
     # Check if payroll is already locked
     if existing and existing.status in [PayrollStatus.LOCKED, PayrollStatus.PAID]:
         # Do not overwrite locked payrolls

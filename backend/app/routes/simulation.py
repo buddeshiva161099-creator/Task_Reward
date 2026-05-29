@@ -76,6 +76,7 @@ async def seed_simulation_data(admin: User = Depends(require_admin)):
             role=ud["role"],
             company_id=company.id,
             reward_points=ud["points"],
+            hiring_date="2026-05-01",
             is_active=True
         )
         await user.insert()
@@ -109,40 +110,54 @@ async def seed_simulation_data(admin: User = Depends(require_admin)):
     month_str = "2026-05"
     base_date = datetime(2026, 5, 1)
 
+    # Weekdays in May 2026 (total 21 weekdays)
+    weekdays_days = [1, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 25, 26, 27, 28, 29]
+
     for name, user in seeded_users.items():
         logs = []
         if name == "Sujeeth":
-            # 20 present days, 5 overtime
-            for d in range(1, 21):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=d, hours=9), check_out=base_date + timedelta(days=d, hours=18), status="present"))
-            for ot in range(21, 26):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=ot, hours=9), check_out=base_date + timedelta(days=ot, hours=21), status="approved_overtime", remarks="Approved Overtime shift"))
+            # 20 present days, 5 overtime on weekdays
+            for i in range(16):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 18, 0), status="present"))
+            for i in range(16, 21):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 21, 0), status="approved_overtime", remarks="Approved Overtime shift"))
         elif name == "Mounika":
-            # 20 present days
-            for d in range(1, 21):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=d, hours=9), check_out=base_date + timedelta(days=d, hours=18), status="present"))
+            # 20 present days -> all 21 weekdays present
+            for i in range(21):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 18, 0), status="present"))
         elif name == "Nishitha":
-            # 19 present, 1 excused leave day
-            for d in range(1, 20):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=d, hours=9), check_out=base_date + timedelta(days=d, hours=18), status="present"))
-            logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=20, hours=9), check_out=base_date + timedelta(days=20, hours=18), status="excused_leave", remarks="Excused Leave Day"))
+            # 19 present, 1 excused leave day -> 20 present, 1 excused leave weekday
+            for i in range(20):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 18, 0), status="present"))
+            d = weekdays_days[20]
+            logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 18, 0), status="excused_leave", remarks="Excused Leave Day"))
         elif name == "Umesh":
-            # 15 present, 5 late (>30 min)
-            for d in range(1, 16):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=d, hours=9), check_out=base_date + timedelta(days=d, hours=18), status="present"))
-            for late_day in range(16, 21):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=late_day, hours=10, minutes=15), check_out=base_date + timedelta(days=late_day, hours=18), status="late_over_30", remarks="Late check-in > 30 mins"))
+            # 15 present, 5 late (>30 min) -> 16 present, 5 late weekdays
+            for i in range(16):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 18, 0), status="present"))
+            for i in range(16, 21):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 10, 15), check_out=datetime(2026, 5, d, 18, 0), status="late_over_30", remarks="Late check-in > 30 mins"))
         elif name == "Shiva":
             # 18 present, 1 late (<30 min), 1 unexcused absence, 2 overtime
-            for d in range(1, 19):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=d, hours=9), check_out=base_date + timedelta(days=d, hours=18), status="present"))
+            for i in range(17):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 18, 0), status="present"))
             # 1 day late under 30 min
-            logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=19, hours=9, minutes=15), check_out=base_date + timedelta(days=19, hours=18), status="late_under_30", remarks="Late check-in < 30 mins"))
-            # 1 unexcused absence
-            logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=20, hours=9), check_out=base_date + timedelta(days=20, hours=18), status="unexcused_absence", remarks="Unexcused Absence"))
+            d = weekdays_days[17]
+            logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 15), check_out=datetime(2026, 5, d, 18, 0), status="late_under_30", remarks="Late check-in < 30 mins"))
             # 2 Overtime shifts
-            for ot in range(21, 23):
-                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=base_date + timedelta(days=ot, hours=9), check_out=base_date + timedelta(days=ot, hours=21), status="approved_overtime", remarks="Approved Overtime shift"))
+            for i in range(18, 20):
+                d = weekdays_days[i]
+                logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 21, 0), status="approved_overtime", remarks="Approved Overtime shift"))
+            # 1 unexcused absence
+            d = weekdays_days[20]
+            logs.append(Attendance(user_id=user.id, company_id=company.id, check_in=datetime(2026, 5, d, 9, 0), check_out=datetime(2026, 5, d, 18, 0), status="unexcused_absence", remarks="Unexcused Absence"))
 
         for l in logs:
             await l.insert()
