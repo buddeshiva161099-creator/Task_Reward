@@ -20,4 +20,4 @@ def find_mismatch(filepath):
     print(f"Final balance: {balance}")
 
 if __name__ == "__main__":
-    find_mismatch(r"c:\Users\USER\Desktop\PROJECTS\Annaya_Projects\Vison_Employe_work_scheduler_with Privacy\frontend\src\app\admin\employees\detail\page.tsx")
+    find_mismatch(r"./src/app/admin/employees/detail/page.tsx")

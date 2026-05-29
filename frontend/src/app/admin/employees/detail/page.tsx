@@ -674,10 +674,12 @@ function EmployeeProfileContent() {
                       strokeLinecap="round"
                     />
                   </svg>
-                  <div className="text-center">
-                    <span className="text-3xl font-black text-slate-800 tracking-tighter">
-                      {stats?.efficiency_rate ?? 0}%
-                    </span>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <span className="text-3xl font-black text-slate-800 tracking-tighter">
+                        {stats?.efficiency_rate ?? 0}%
+                      </span>
+                    </div>
                   </div>
                 </div>
 

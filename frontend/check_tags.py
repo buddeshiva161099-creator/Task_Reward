@@ -27,4 +27,4 @@ def check_jsx_balance(filepath):
         print(f"Error: Unclosed tags remaining: {stack}")
 
 if __name__ == "__main__":
-    check_jsx_balance(r"c:\Users\USER\Desktop\PROJECTS\Annaya_Projects\Vison_Employe_work_scheduler_with Privacy\frontend\src\app\admin\employees\detail\page.tsx")
+    check_jsx_balance(r"./src/app/admin/employees/detail/page.tsx")

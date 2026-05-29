@@ -71,6 +71,14 @@ export interface Company {
   earned_leave_limit?: number;
   casual_leave_limit?: number;
   max_paid_casual_leaves_per_month?: number;
+  task_priority_points?: any;
+  delay_penalties?: any;
+  early_completion_multiplier?: number;
+  quality_multipliers?: any;
+  attendance_points?: any;
+  attendance_bonus_threshold?: number;
+  attendance_bonus_percentage?: number;
+  performance_incentive_pool_percentage?: number;
 }
 
 export interface Attendance {
@@ -109,6 +117,14 @@ export interface Employee {
   alternate_mobile?: string;
   reporting_manager_id?: string;
   hr_reporting_manager_id?: string;
+  identity_card_type?: string;
+  identity_card_url?: string;
+  emergency_contact?: string;
+  job_title?: string;
+  department?: string;
+  branch?: string;
+  hiring_date?: string;
+  hiring_company?: string;
 }
 
 export interface LoginRequest {
@@ -131,6 +147,14 @@ export interface CreateEmployeeRequest {
   alternate_mobile?: string;
   reporting_manager_id?: string;
   hr_reporting_manager_id?: string;
+  identity_card_type?: string;
+  identity_card_url?: string;
+  emergency_contact?: string;
+  job_title?: string;
+  department?: string;
+  branch?: string;
+  hiring_date?: string;
+  hiring_company?: string;
 }
 
 export interface CreateTaskRequest {
