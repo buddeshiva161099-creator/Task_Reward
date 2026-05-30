@@ -1,59 +1,37 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Search, X, Users, ClipboardList, Building2, Command } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { Search, User, Building2, ClipboardList, X, Command, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 
-interface SearchResults {
-  employees: { id: string; name: string; role: string; company_id: string }[];
-  tasks: { id: string; title: string; status: string }[];
-  companies: { id: string; name: string }[];
+interface SearchResult {
+  id: string;
+  name?: string;
+  description?: string;
+  email?: string;
+  status?: string;
+  type: 'employee' | 'company' | 'task';
 }
-
-type ResultType = 'employee' | 'task' | 'company';
 
 export default function GlobalSearch() {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<SearchResults>({ employees: [], tasks: [], companies: [] });
-  const [isLoading, setIsLoading] = useState(false);
+  const [results, setResults] = useState<{
+    employees: SearchResult[];
+    companies: SearchResult[];
+    tasks: SearchResult[];
+  }>({ employees: [], companies: [], tasks: [] });
+  const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const router = useRouter();
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const flatResults = useMemo(() => {
-    return [
-      ...results.employees.map(e => ({ ...e, type: 'employee' as const })),
-      ...results.companies.map(c => ({ ...c, type: 'company' as const })),
-      ...results.tasks.map(t => ({ ...t, type: 'task' as const })),
-    ];
-  }, [results]);
-
-  const handleNavigate = useCallback((type: ResultType, id: string) => {
-    setIsOpen(false);
-    setQuery('');
-    setResults({ employees: [], tasks: [], companies: [] });
-    setSelectedIndex(0);
-
-    switch (type) {
-      case 'employee':
-        router.push(`/admin/employees?id=${id}`);
-        break;
-      case 'task':
-        router.push(`/admin/tasks?id=${id}`);
-        break;
-      case 'company':
-        router.push(`/admin/companies?id=${id}`);
-        break;
-    }
-  }, [router]);
-
+  // Keyboard shortcut Ctrl+K
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        setQuery('');
-        setResults({ employees: [], tasks: [], companies: [] });
         setSelectedIndex(0);
         setIsOpen(true);
       }
@@ -66,198 +44,200 @@ export default function GlobalSearch() {
   }, []);
 
   useEffect(() => {
-    const search = async () => {
-      if (query.length < 2) {
-        setResults({ employees: [], tasks: [], companies: [] });
-        return;
-      }
+    if (isOpen) {
+      inputRef.current?.focus();
+    }
+  }, [isOpen]);
 
-      setIsLoading(true);
-      try {
-        const response = await api.get(`/search/global?q=${query}`);
-        setResults(response.data);
-        setSelectedIndex(0);
-      } catch (error) {
-        console.error('Search failed:', error);
-      } finally {
-        setIsLoading(false);
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (query.length >= 2) {
+        setLoading(true);
+        try {
+          const res = await api.get(`/search?q=${query}`);
+          setResults(res.data);
+          setSelectedIndex(0);
+        } catch (err) {
+          console.error('Search failed:', err);
+        } finally {
+          setLoading(false);
+        }
+      } else {
+        setResults({ employees: [], companies: [], tasks: [] });
       }
-    };
+    }, 300);
 
-    const debounce = setTimeout(search, 300);
-    return () => clearTimeout(debounce);
+    return () => clearTimeout(timer);
   }, [query]);
 
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (flatResults.length === 0) return;
+  const flatResults = [...results.employees, ...results.companies, ...results.tasks];
 
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedIndex(prev => (prev + 1) % flatResults.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedIndex(prev => (prev - 1 + flatResults.length) % flatResults.length);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      const selected = flatResults[selectedIndex];
-      if (selected) {
-        handleNavigate(selected.type, selected.id);
-      }
+  const handleNavigate = (type: string, id: string) => {
+    setIsOpen(false);
+    switch (type) {
+      case 'employee':
+        router.push(`/admin/employees/detail?id=${id}`);
+        break;
+      case 'company':
+        router.push(`/admin/companies`); // or detail if we add it
+        break;
+      case 'task':
+        router.push(`/admin/tasks`); // or specific scroll/filter
+        break;
     }
   };
 
+  const hasResults = results.employees.length > 0 || results.companies.length > 0 || results.tasks.length > 0;
+
   return (
     <>
+      {/* Search Trigger (Input-like button) */}
       <button
         onClick={() => {
           setQuery('');
-          setResults({ employees: [], tasks: [], companies: [] });
+          setResults({ employees: [], companies: [], tasks: [] });
           setSelectedIndex(0);
           setIsOpen(true);
         }}
-        className="flex items-center gap-3 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl transition-all w-full max-w-md group"
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100/50 hover:bg-slate-100 border border-slate-200 transition-all text-muted-foreground flex-1 max-w-[180px] sm:max-w-xs"
       >
-        <Search className="w-4 h-4 group-hover:text-indigo-600 transition-colors" />
-        <span className="text-sm font-medium flex-1 text-left">Search anything...</span>
-        <div className="flex items-center gap-1">
-          <kbd className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold">Ctrl</kbd>
-          <kbd className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold">K</kbd>
+        <Search className="w-4 h-4" />
+        <span className="text-xs flex-1 text-left">Quick Search...</span>
+        <div className="hidden md:flex items-center gap-0.5 px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-mono">
+          <Command className="w-2.5 h-2.5" />
+          <span>K</span>
         </div>
       </button>
 
+      {/* Search Modal */}
       {isOpen && (
-        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[10vh] px-4">
-          <div
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
-            onClick={() => setIsOpen(false)}
-          />
+        <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] px-4">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => {
+            setIsOpen(false);
+            setQuery('');
+            setResults({ employees: [], companies: [], tasks: [] });
+            setSelectedIndex(0);
+          }} />
           
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl relative overflow-hidden flex flex-col max-h-[70vh] ring-1 ring-slate-200">
-            <div className="p-4 border-b border-slate-100 flex items-center gap-4">
-              <Search className="w-5 h-5 text-slate-400" />
+          <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-200">
+            {/* Input Section */}
+            <div className="p-4 border-b border-slate-100 flex items-center gap-3">
+              <Search className="w-5 h-5 text-indigo-500" />
               <input
-                autoFocus
-                className="flex-1 bg-transparent border-none outline-none text-slate-900 placeholder:text-slate-400 text-lg"
-                placeholder="Search employees, tasks, companies..."
+                ref={inputRef}
+                type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={onKeyDown}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedIndex((prev) => (prev + 1) % flatResults.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedIndex((prev) => (prev - 1 + flatResults.length) % flatResults.length);
+                  } else if (e.key === 'Enter' && flatResults[selectedIndex]) {
+                    handleNavigate(flatResults[selectedIndex].type, flatResults[selectedIndex].id);
+                  }
+                }}
+                placeholder="Search for employees, tasks, or companies..."
+                className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400"
               />
-              {isLoading ? (
-                <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+              {loading ? (
+                <Loader2 className="w-4 h-4 text-indigo-400 animate-spin" />
               ) : (
-                <button
-                  onClick={() => setIsOpen(false)}
-                  className="p-1 hover:bg-slate-100 rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-400" />
+                <button onClick={() => setIsOpen(false)} className="p-1 hover:bg-slate-100 rounded-md">
+                  <X className="w-4 h-4 text-slate-400" />
                 </button>
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2">
-              {query.length > 0 && query.length < 2 && (
-                <div className="p-8 text-center">
-                  <p className="text-slate-500 text-sm">Type at least 2 characters to search...</p>
+            {/* Results Section */}
+            <div className="max-h-[60vh] overflow-y-auto custom-scrollbar p-2">
+              {query.length < 2 ? (
+                <div className="p-12 text-center">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 flex items-center justify-center mx-auto mb-4">
+                    <Command className="w-6 h-6 text-indigo-500" />
+                  </div>
+                  <p className="text-sm font-medium text-slate-900">Global Omni-Search</p>
+                  <p className="text-xs text-slate-500 mt-1">Start typing to find anything instantly.</p>
                 </div>
-              )}
-
-              {query.length >= 2 && flatResults.length === 0 && !isLoading && (
-                <div className="p-8 text-center">
-                  <p className="text-slate-500 text-sm">No results found for &quot;{query}&quot;</p>
+              ) : !loading && !hasResults ? (
+                <div className="p-12 text-center text-slate-500">
+                  <Search className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                  <p className="text-sm">No results found for &quot;{query}&quot;</p>
                 </div>
-              )}
-
-              {flatResults.length > 0 && (
+              ) : (
                 <div className="space-y-4 p-2">
+                  {/* Employees */}
                   {results.employees.length > 0 && (
                     <div>
-                      <h3 className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Employees</h3>
-                      <div className="space-y-1">
-                        {results.employees.map((emp) => {
-                          const flatIndex = flatResults.findIndex(f => f.type === 'employee' && f.id === emp.id);
-                          const isSelected = flatIndex === selectedIndex;
-                          return (
-                            <button
-                              key={emp.id}
-                              onClick={() => handleNavigate('employee', emp.id)}
-                              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-left group ${
-                                isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                                isSelected ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                <Users className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <p className={`text-sm font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{emp.name}</p>
-                                <p className="text-[10px] text-slate-500">{emp.role}</p>
-                              </div>
-                            </button>
-                          );
-                        })}
+                      <h3 className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Employees</h3>
+                      <div className="mt-1 space-y-0.5">
+                        {results.employees.map((emp, i) => (
+                          <button
+                            key={emp.id}
+                            onClick={() => handleNavigate('employee', emp.id)}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left group ${selectedIndex === i ? 'bg-indigo-50 ring-2 ring-indigo-200' : 'hover:bg-indigo-50'}`}
+                          >
+                            <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
+                              <User className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{emp.name}</p>
+                              <p className="text-[10px] text-slate-500">{emp.email}</p>
+                            </div>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
 
+                  {/* Companies */}
                   {results.companies.length > 0 && (
                     <div>
-                      <h3 className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Companies</h3>
-                      <div className="space-y-1">
-                        {results.companies.map((comp) => {
-                          const flatIndex = flatResults.findIndex(f => f.type === 'company' && f.id === comp.id);
-                          const isSelected = flatIndex === selectedIndex;
-                          return (
-                            <button
-                              key={comp.id}
-                              onClick={() => handleNavigate('company', comp.id)}
-                              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-left group ${
-                                isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                                isSelected ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                <Building2 className="w-4 h-4" />
-                              </div>
-                              <div>
-                                <p className={`text-sm font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{comp.name}</p>
-                              </div>
-                            </button>
-                          );
-                        })}
+                      <h3 className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Companies</h3>
+                      <div className="mt-1 space-y-0.5">
+                        {results.companies.map((comp, i) => (
+                          <button
+                            key={comp.id}
+                            onClick={() => handleNavigate('company', comp.id)}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left group ${selectedIndex === results.employees.length + i ? 'bg-emerald-50 ring-2 ring-emerald-200' : 'hover:bg-emerald-50'}`}
+                          >
+                            <div className="w-9 h-9 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-600">
+                              <Building2 className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-slate-800 group-hover:text-emerald-600 transition-colors">{comp.name}</p>
+                              <p className="text-[10px] text-slate-500">Client Partner</p>
+                            </div>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
 
+                  {/* Tasks */}
                   {results.tasks.length > 0 && (
                     <div>
-                      <h3 className="px-3 text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Tasks</h3>
-                      <div className="space-y-1">
-                        {results.tasks.map((task) => {
-                          const flatIndex = flatResults.findIndex(f => f.type === 'task' && f.id === task.id);
-                          const isSelected = flatIndex === selectedIndex;
-                          return (
-                            <button
-                              key={task.id}
-                              onClick={() => handleNavigate('task', task.id)}
-                              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl transition-all text-left group ${
-                                isSelected ? 'bg-indigo-50 ring-1 ring-indigo-200' : 'hover:bg-slate-50'
-                              }`}
-                            >
-                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center transition-colors ${
-                                isSelected ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-500'
-                              }`}>
-                                <ClipboardList className="w-4 h-4" />
+                      <h3 className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Work Items</h3>
+                      <div className="mt-1 space-y-0.5">
+                        {results.tasks.map((task, i) => (
+                          <button
+                            key={task.id}
+                            onClick={() => handleNavigate('task', task.id)}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left group ${selectedIndex === results.employees.length + results.companies.length + i ? 'bg-amber-50 ring-2 ring-amber-200' : 'hover:bg-amber-50'}`}
+                          >
+                            <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
+                              <ClipboardList className="w-4 h-4" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-bold text-slate-800 group-hover:text-amber-600 transition-colors truncate">{task.description}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[9px] uppercase tracking-wider font-black text-slate-400">Status: {task.status}</span>
                               </div>
-                              <div>
-                                <p className={`text-sm font-bold ${isSelected ? 'text-indigo-900' : 'text-slate-700'}`}>{task.title}</p>
-                                <p className="text-[10px] text-slate-500 capitalize">{task.status}</p>
-                              </div>
-                            </button>
-                          );
-                        })}
+                            </div>
+                          </button>
+                        ))}
                       </div>
                     </div>
                   )}
@@ -265,27 +245,21 @@ export default function GlobalSearch() {
               )}
             </div>
 
-            <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
+            {/* Footer */}
+            <div className="p-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5">
-                  <kbd className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold shadow-sm">
-                    <Command className="w-2.5 h-2.5" />
-                  </kbd>
-                  <span className="text-[10px] font-medium text-slate-500">Search</span>
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <kbd className="px-1.5 py-0.5 rounded border border-slate-200 bg-white font-mono">↑↓</kbd>
+                  <span>to navigate</span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <div className="flex gap-0.5">
-                    <kbd className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold shadow-sm">↑</kbd>
-                    <kbd className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold shadow-sm">↓</kbd>
-                  </div>
-                  <span className="text-[10px] font-medium text-slate-500">Navigate</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <kbd className="px-1.5 py-0.5 rounded border border-slate-300 bg-white text-[10px] font-bold shadow-sm">↵</kbd>
-                  <span className="text-[10px] font-medium text-slate-500">Select</span>
+                <div className="flex items-center gap-1.5 text-[10px] text-slate-400">
+                  <kbd className="px-1.5 py-0.5 rounded border border-slate-200 bg-white font-mono">Enter</kbd>
+                  <span>to select</span>
                 </div>
               </div>
-              <p className="text-[10px] font-medium text-slate-400">Press Esc to close</p>
+              <div className="text-[10px] text-slate-400">
+                Press <kbd className="px-1.5 py-0.5 rounded border border-slate-200 bg-white font-mono">Esc</kbd> to close
+              </div>
             </div>
           </div>
         </div>
