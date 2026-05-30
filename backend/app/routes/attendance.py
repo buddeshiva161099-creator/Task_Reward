@@ -242,11 +242,16 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
     # Automatically recalculate draft payroll if it exists and is not locked
     try:
         from app.routes.payroll import calculate_corporate_payroll
+        from app.models.payroll import Payroll, PayrollStatus
         month_str = attendance.check_in.astimezone(IST).strftime("%Y-%m")
-        await calculate_corporate_payroll(
-            employee=current_user,
-            month=month_str
-        )
+
+        payrolls = await Payroll.find(Payroll.user_id == current_user.id, Payroll.month == month_str).to_list()
+        for p in payrolls:
+            if p.status == PayrollStatus.DRAFT:
+                await calculate_corporate_payroll(employee=current_user, month=month_str)
+            else:
+                p.recalculation_required = True
+                await p.save()
     except Exception as e:
         logger.warning(f"Could not automatically recalculate draft payroll on check-out: {e}")
     

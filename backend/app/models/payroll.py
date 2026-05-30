@@ -47,6 +47,8 @@ class Payroll(Document):
     present_days: int = Field(default=0)
     absent_days: int = Field(default=0)
     paid_leaves: int = Field(default=0)
+    approved_regularization_days: int = Field(default=0)
+    payable_days: int = Field(default=0)
     holidays_weekends: int = Field(default=0)
     total_working_days: int = Field(default=0)
     
@@ -68,9 +70,27 @@ class Payroll(Document):
     approved_by: Optional[PydanticObjectId] = None
     approved_by_name: Optional[str] = None
     remarks: Optional[str] = Field(default=None, max_length=1000)
+
+    # Versioning & Recalculation
+    version_number: int = Field(default=1)
+    recalculation_required: bool = Field(default=False)
+
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:
         name = "payrolls"
         indexes = ["user_id", "month", "status"]
+
+
+class PayrollHistory(Document):
+    payroll_id: PydanticObjectId
+    version_number: int
+    payroll_snapshot: dict
+    reason_for_change: Optional[str] = None
+    created_by: Optional[PydanticObjectId] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "payroll_history"
+        indexes = ["payroll_id", "version_number"]

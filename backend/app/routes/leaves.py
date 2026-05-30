@@ -474,6 +474,23 @@ async def approve_leave(leave_id: str, action: LeaveActionRequest, hr_manager: U
             for rid in recipient_ids
         ])
 
+    # Trigger payroll recalculation logic if necessary
+    from app.models.payroll import Payroll, PayrollStatus
+    from app.routes.payroll import calculate_corporate_payroll
+    from app.models.attendance import IST
+    month_str = leave.start_date.astimezone(IST).strftime("%Y-%m")
+    try:
+        payrolls = await Payroll.find(Payroll.user_id == leave.user_id, Payroll.month == month_str).to_list()
+        for p in payrolls:
+            if p.status == PayrollStatus.DRAFT:
+                await calculate_corporate_payroll(employee=applicant, month=month_str)
+            else:
+                p.recalculation_required = True
+                await p.save()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not automatically recalculate payroll on leave approval: {e}")
+
     return {"message": "Leave request approved, balance updated, and marked present successfully."}
 
 

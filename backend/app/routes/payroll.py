@@ -54,6 +54,7 @@ async def calculate_corporate_payroll(
     from app.models.attendance import Attendance, IST
     from app.models.holiday import Holiday
     from app.models.leave import Leave, LeaveStatus
+    from app.models.regularization import AttendanceRegularization, RegularizationStatus
     from datetime import timezone
 
     # 1. Parse Month/Year
@@ -152,10 +153,19 @@ async def calculate_corporate_payroll(
             leave_type_map[cur] = leave.leave_type
             cur += timedelta(days=1)
 
+    approved_regularizations = await AttendanceRegularization.find(
+        AttendanceRegularization.user_id == employee.id,
+        AttendanceRegularization.status == RegularizationStatus.APPROVED
+    ).to_list()
+
+    # Store regularized attendance IDs to track which dates were regularized
+    regularized_attendance_ids = {str(reg.attendance_id) for reg in approved_regularizations}
+
     # 8. Loop through working days to find present, absent, paid leaves
     present_days = 0
     absent_days = 0
     paid_leaves = 0
+    approved_regularization_days = 0
     late_penalties = 0.0
     overtime_pay = 0.0
 
@@ -170,12 +180,18 @@ async def calculate_corporate_payroll(
         
         if not (is_weekend or is_holiday):
             log = attendance_map.get(cur_date)
+            is_regularized = log and str(log.id) in regularized_attendance_ids
+
             if log:
                 status_lower = log.status.lower() if log.status else ""
                 if "absent" in status_lower or "absence" in status_lower:
                     absent_days += 1
                 else:
-                    present_days += 1
+                    if is_regularized:
+                        approved_regularization_days += 1
+                    else:
+                        present_days += 1
+
                     # Late check-in penalty: flat 100 INR
                     if "late" in status_lower:
                         late_penalties += 100.0
@@ -195,14 +211,17 @@ async def calculate_corporate_payroll(
                             absent_days += 1
                     elif ltype_str == "loss_of_pay":
                         absent_days += 1
-                    elif ltype_str in ["sick", "earned"]:
+                    elif ltype_str in ["sick", "earned", "approved_leave"]:
                         paid_leaves += 1
                     else:
-                        # WFH or other types count as present
-                        present_days += 1
+                        # Paid leaves are counted towards paid_leaves
+                        paid_leaves += 1
                 else:
                     absent_days += 1
         cur_day += timedelta(days=1)
+
+    payable_days = present_days + paid_leaves + approved_regularization_days
+    absent_days = max(0, total_working_days - payable_days)
 
     # 9. Perform Calculations
     basic = structure.basic
@@ -321,7 +340,7 @@ async def calculate_corporate_payroll(
 
     # Check if payroll is already locked
     if existing and existing.status in [PayrollStatus.LOCKED, PayrollStatus.PAID]:
-        # Do not overwrite locked payrolls
+        # Do not overwrite locked payrolls. We just mark it as recalculation_required elsewhere.
         return existing
 
     total_earnings = earned_salary + overtime_pay + incentives + bonuses
@@ -330,6 +349,21 @@ async def calculate_corporate_payroll(
 
     if existing:
         payroll = existing
+
+        # Snapshot the existing version before saving the new calculations
+        from app.models.payroll import PayrollHistory
+        history = PayrollHistory(
+            payroll_id=existing.id,
+            version_number=existing.version_number,
+            payroll_snapshot=existing.dict(exclude={"id", "created_at", "updated_at", "version_number", "recalculation_required"}),
+            reason_for_change="Recalculated based on latest approved attendance/leave data.",
+            created_by=drafted_by_id
+        )
+        await history.insert()
+
+        # Increment version and reset recalculation required flag
+        payroll.version_number += 1
+        payroll.recalculation_required = False
     else:
         payroll = Payroll(user_id=employee.id, user_name=employee.name, month=month)
 
@@ -343,6 +377,8 @@ async def calculate_corporate_payroll(
     payroll.present_days = present_days
     payroll.absent_days = absent_days
     payroll.paid_leaves = paid_leaves
+    payroll.approved_regularization_days = approved_regularization_days
+    payroll.payable_days = payable_days
     payroll.holidays_weekends = holidays_weekends
     payroll.total_working_days = total_working_days
     
@@ -359,7 +395,7 @@ async def calculate_corporate_payroll(
     payroll.net_salary = net_salary
     
     payroll.remarks = (
-        f"Processed corporate payroll for {month}. Present: {present_days}d, "
+        f"Processed corporate payroll for {month}. Present: {present_days}d, Regularized: {approved_regularization_days}d, "
         f"Absent (LOP): {absent_days}d, Paid Leaves: {paid_leaves}d, Holidays: {holidays_weekends}d. "
         f"LOP deduction: Rs. {lop_deduction:.2f}. PF: Rs. {pf_deduction:.2f}, Tax: Rs. {tax_deduction:.2f}."
     )
@@ -708,6 +744,8 @@ async def get_pending_payrolls(user: User = Depends(require_hr_team)):
             "present_days": p.present_days,
             "absent_days": p.absent_days,
             "paid_leaves": p.paid_leaves,
+            "approved_regularization_days": p.approved_regularization_days,
+            "payable_days": p.payable_days,
             "holidays_weekends": p.holidays_weekends,
             "total_working_days": p.total_working_days,
             "lop_deduction": p.lop_deduction,
@@ -715,7 +753,9 @@ async def get_pending_payrolls(user: User = Depends(require_hr_team)):
             "penalties": p.penalties,
             "incentives": p.incentives,
             "bonuses": p.bonuses,
-            "deductions": p.deductions
+            "deductions": p.deductions,
+            "version_number": p.version_number,
+            "recalculation_required": p.recalculation_required
         }
         for p in payrolls
     ]
@@ -789,6 +829,109 @@ async def approve_payroll(
     await log.insert()
 
     return {"message": "Payroll successfully approved, locked, and payslip generated!"}
+
+
+@router.post("/recalculate/{payroll_id}")
+async def manual_recalculate_payroll(
+    payroll_id: str,
+    admin: User = Depends(require_hr_team)
+):
+    """Manually trigger recalculation of a payroll (draft, or flagged as recalculation_required)."""
+    payroll = await Payroll.get(PydanticObjectId(payroll_id))
+    if not payroll:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll record not found")
+
+    employee = await User.get(payroll.user_id)
+    if not employee:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+    # Only HR team/admins can recalculate
+    if admin.role != UserRole.ADMIN:
+        from app.routes.employees import get_visible_employee_ids
+        visible_ids = await get_visible_employee_ids(admin)
+        if visible_ids is not None and payroll.user_id not in visible_ids:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only manage payroll for employees under your hierarchy."
+            )
+
+    try:
+        new_payroll = await calculate_corporate_payroll(
+            employee=employee,
+            month=payroll.month,
+            drafted_by_id=admin.id,
+            drafted_by_name=admin.name
+        )
+        return {"message": "Payroll recalculated successfully", "id": str(new_payroll.id)}
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.delete("/{payroll_id}")
+async def delete_payroll(
+    payroll_id: str,
+    admin: User = Depends(require_hr_team)
+):
+    """Delete a payroll and its history (HR Manager or Admin only)."""
+    payroll = await Payroll.get(PydanticObjectId(payroll_id))
+    if not payroll:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll record not found")
+
+    if admin.role not in [UserRole.ADMIN, UserRole.HR_MANAGER]:
+         raise HTTPException(
+             status_code=status.HTTP_403_FORBIDDEN,
+             detail="Only HR Managers or Admins can delete payrolls."
+         )
+
+    from app.models.payroll import PayrollHistory
+    await PayrollHistory.find(PayrollHistory.payroll_id == payroll.id).delete()
+    await payroll.delete()
+
+    # Log audit entry
+    log = ActivityLog(
+        user_id=admin.id,
+        user_name=admin.name,
+        action="Payroll Deleted",
+        details=f"Deleted payroll {payroll.month} for employee {payroll.user_name}.",
+    )
+    await log.insert()
+
+    return {"message": "Payroll and its history successfully deleted."}
+
+
+@router.get("/{payroll_id}/history")
+async def get_payroll_history(
+    payroll_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Fetch version history of a specific payroll."""
+    payroll = await Payroll.get(PydanticObjectId(payroll_id))
+    if not payroll:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll record not found")
+
+    # Check permissions (either it's my payroll, or I am HR/Admin with visibility)
+    if current_user.id != payroll.user_id:
+        if current_user.role not in [UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER, UserRole.MANAGER, UserRole.ASSISTANT_MANAGER]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+        if current_user.role != UserRole.ADMIN:
+            from app.routes.employees import get_visible_employee_ids
+            visible_ids = await get_visible_employee_ids(current_user)
+            if visible_ids is not None and payroll.user_id not in visible_ids:
+                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    from app.models.payroll import PayrollHistory
+    history = await PayrollHistory.find(PayrollHistory.payroll_id == payroll.id).sort("-version_number").to_list()
+
+    return [
+        {
+            "version_number": h.version_number,
+            "reason_for_change": h.reason_for_change,
+            "created_at": h.created_at.isoformat(),
+            "snapshot": h.payroll_snapshot
+        }
+        for h in history
+    ]
 
 
 @router.post("/unlock/{payroll_id}")
@@ -884,10 +1027,14 @@ async def get_my_payslips_v2(current_user: User = Depends(get_current_user)):
             "present_days": p.present_days,
             "absent_days": p.absent_days,
             "paid_leaves": p.paid_leaves,
+            "approved_regularization_days": p.approved_regularization_days,
+            "payable_days": p.payable_days,
             "holidays_weekends": p.holidays_weekends,
             "total_working_days": p.total_working_days,
             "lop_deduction": p.lop_deduction,
             "penalties": p.penalties,
+            "deductions": p.deductions,
+            "version_number": p.version_number,
             
             "status": p.status.value,
             "created_at": p.created_at.isoformat(),
