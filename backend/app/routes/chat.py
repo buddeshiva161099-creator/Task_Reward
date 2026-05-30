@@ -1,6 +1,7 @@
 import os
 import shutil
 from datetime import datetime
+from app.utils.ist_time import to_utc_iso
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel
@@ -78,7 +79,7 @@ async def get_active_chat_users(current_user: User = Depends(get_current_user)):
         last_msg_text = ""
         last_msg_time = None
         if last_msg:
-            last_msg_time = last_msg.created_at.isoformat() + 'Z'
+            last_msg_time = to_utc_iso(last_msg.created_at)
             if last_msg.deleted_for_everyone:
                 last_msg_text = "[Message deleted]"
             elif last_msg.type == "file":
@@ -95,7 +96,7 @@ async def get_active_chat_users(current_user: User = Depends(get_current_user)):
             "name": u.name,
             "email": u.email,
             "role": u.role.value,
-            "last_active": u.last_active.isoformat() + 'Z' if u.last_active else None,
+            "last_active": to_utc_iso(u.last_active) if u.last_active else None,
             "last_message_text": last_msg_text,
             "last_message_time": last_msg_time,
             "unread_count": unread_count
@@ -127,7 +128,7 @@ async def get_my_chat_groups(current_user: User = Depends(get_current_user)):
         last_msg_text = ""
         last_msg_time = None
         if last_msg:
-            last_msg_time = last_msg.created_at.isoformat() + 'Z'
+            last_msg_time = to_utc_iso(last_msg.created_at)
             if last_msg.deleted_for_everyone:
                 last_msg_text = "[Message deleted]"
             elif last_msg.type == "file":
@@ -320,7 +321,7 @@ async def get_chat_history(
             "task_details": task_details,
             "tip_points": msg.tip_points,
             "deleted_for_everyone": msg.deleted_for_everyone,
-            "created_at": msg.created_at.isoformat() + 'Z'
+            "created_at": to_utc_iso(msg.created_at)
         })
     return hydrated
 

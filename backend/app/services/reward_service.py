@@ -1,7 +1,7 @@
 """
 Reward service - handles dynamic task performance scoring and leaderboard rankings.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.models.task import Task
 from app.models.user import User
 from app.models.activity_log import ActivityLog
@@ -58,7 +58,7 @@ async def apply_performance_score(task: Task, is_rejection: bool = False) -> Tup
         
         # Delay Penalty
         delay_mult = 1.0
-        completed_at = task.completed_at or datetime.utcnow()
+        completed_at = task.completed_at or datetime.now(timezone.utc)
         if completed_at > task.deadline:
             delay = completed_at - task.deadline
             delay_days = int((delay.total_seconds() + 86399) // 86400)

@@ -6,10 +6,10 @@ from app.models.task import Task, TaskStatus
 from app.models.activity_log import ActivityLog
 from app.services.task_service import get_task_counts
 from app.services.reward_service import get_leaderboard
-from app.models.attendance import Attendance, ist_now
+from app.models.attendance import Attendance, ist_now, IST
 from beanie import PydanticObjectId
 from beanie.operators import In, NE
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 NON_ADMIN_ROLES = [
@@ -23,13 +23,21 @@ NON_ADMIN_ROLES = [
 
 def _build_history_entry(day, record) -> dict:
     """Build an attendance history entry dict. Module-level helper (reused across functions)."""
+    # Convert day to UTC isoformat string ending in Z
+    if isinstance(day, datetime):
+        day_utc = day.astimezone(timezone.utc)
+        date_str = day_utc.isoformat().replace("+00:00", "Z")
+    else:
+        day_utc = datetime.combine(day, datetime.min.time()).replace(tzinfo=IST).astimezone(timezone.utc)
+        date_str = day_utc.isoformat().replace("+00:00", "Z")
+
     entry: dict = {
-        "date": day.isoformat() + "Z",
+        "date": date_str,
         "status": "present" if record else "absent",
     }
     if record:
-        entry["check_in"] = record.check_in.isoformat() + "Z" if record.check_in else None
-        entry["check_out"] = record.check_out.isoformat() + "Z" if record.check_out else None
+        entry["check_in"] = record.check_in.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if record.check_in else None
+        entry["check_out"] = record.check_out.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if record.check_out else None
         entry["location_in"] = record.location_in
         entry["location_out"] = record.location_out
         entry["address_in"] = record.address_in
@@ -250,7 +258,7 @@ async def get_employee_dashboard(user_id: str, filter_type: str = "month", custo
     # Map records by date for fast lookup (take the first/most recent record per day)
     attendance_map: dict = {}
     for r in attendance_records:
-        key = r.check_in.date()
+        key = r.check_in.astimezone(IST).date()
         if key not in attendance_map:
             attendance_map[key] = r
     
@@ -341,7 +349,7 @@ async def get_all_attendance_summary(visible_employee_ids=None):
     log_map: dict = {}
     for log in logs:
         uid = str(log.user_id)
-        date_str = log.check_in.date().isoformat()
+        date_str = log.check_in.astimezone(IST).date().isoformat()
         if uid not in log_map:
             log_map[uid] = {}
         if date_str not in log_map[uid]:
@@ -469,7 +477,7 @@ async def get_performance_metrics(
     pending = 0
     overdue = 0
     
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     
     for t in tasks:
         if t.status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE]:

@@ -97,7 +97,8 @@ async def get_tasks(
     tasks = await Task.find(query).sort("-created_at").to_list()
 
     # Auto-mark overdue tasks
-    now = datetime.utcnow()
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
     for task in tasks:
         if task.status in [TaskStatus.PENDING, TaskStatus.IN_PROGRESS] and task.deadline < now:
             await task.set({"status": TaskStatus.OVERDUE, "updated_at": now})
@@ -156,11 +157,12 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
     # Append remark if provided
     if remark_text:
         user = await User.get(PydanticObjectId(user_id))
+        from datetime import timezone
         new_remark = {
             "user_id": user_id,
             "user_name": user.name if user else "Unknown",
             "text": remark_text,
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         }
         current_remarks = task.remarks or []
         current_remarks.append(new_remark)
@@ -169,13 +171,15 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
     # Handle completion
     new_status = update_data.get("status")
     if new_status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE, TaskStatus.DELAYED] and task.status not in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE, TaskStatus.DELAYED]:
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         update_data["completed_at"] = now
         # If past deadline, set status to DELAYED or COMPLETED_LATE
         if task.deadline < now:
             update_data["status"] = TaskStatus.DELAYED
 
-    update_data["updated_at"] = datetime.utcnow()
+    from datetime import timezone
+    update_data["updated_at"] = datetime.now(timezone.utc)
     await task.set(update_data)
 
     # Reload the task
@@ -228,7 +232,8 @@ async def get_task_counts(user_id: Optional[str] = None, user_ids: Optional[list
         base_query["assigned_to"] = {"$in": user_ids}
 
     # Auto-update overdue tasks first (this still requires an update_many or individual updates)
-    now = datetime.utcnow()
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
     # Use find().set() for batch update if supported, or loop for simple logic.
     # Beanie supports update_many:
     await Task.find(

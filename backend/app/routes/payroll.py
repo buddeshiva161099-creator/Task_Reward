@@ -51,9 +51,10 @@ async def calculate_corporate_payroll(
     drafted_by_name: Optional[str] = None
 ) -> Payroll:
     from app.models.company import Company
-    from app.models.attendance import Attendance
+    from app.models.attendance import Attendance, IST
     from app.models.holiday import Holiday
     from app.models.leave import Leave, LeaveStatus
+    from datetime import timezone
 
     # 1. Parse Month/Year
     try:
@@ -61,33 +62,41 @@ async def calculate_corporate_payroll(
     except Exception:
         raise ValueError("Invalid month format. Use YYYY-MM.")
 
-    start_of_month = datetime(year, month_num, 1)
+    start_of_month_ist = datetime(year, month_num, 1, tzinfo=IST)
     if month_num == 12:
-        end_of_month = datetime(year + 1, 1, 1) - timedelta(microseconds=1)
+        end_of_month_ist = datetime(year + 1, 1, 1, tzinfo=IST) - timedelta(microseconds=1)
     else:
-        end_of_month = datetime(year, month_num + 1, 1) - timedelta(microseconds=1)
-    total_days_in_month = (end_of_month - start_of_month).days + 1
+        end_of_month_ist = datetime(year, month_num + 1, 1, tzinfo=IST) - timedelta(microseconds=1)
+    
+    start_of_month = start_of_month_ist.astimezone(timezone.utc)
+    end_of_month = end_of_month_ist.astimezone(timezone.utc)
+    total_days_in_month = (end_of_month_ist.date() - start_of_month_ist.date()).days + 1
 
     # 2. Join Date Check
     joining_date = None
     if employee.hiring_date:
         try:
-            joining_date = datetime.strptime(employee.hiring_date, "%Y-%m-%d")
+            joining_date = datetime.strptime(employee.hiring_date, "%Y-%m-%d").replace(tzinfo=IST)
         except Exception:
             pass
     if not joining_date:
         joining_date = employee.created_at
+        if joining_date.tzinfo is None:
+            joining_date = joining_date.replace(tzinfo=timezone.utc)
     
-    # Make naive for comparison
-    joining_date = joining_date.replace(tzinfo=None)
+    joining_date_utc = joining_date.astimezone(timezone.utc)
 
-    if joining_date > end_of_month:
+    if joining_date_utc > end_of_month:
         raise ValueError(f"Employee {employee.name} joined after the selected month ({month}).")
 
     # 3. Active window proration
-    active_start_date = max(start_of_month, joining_date.replace(hour=0, minute=0, second=0, microsecond=0))
-    active_end_date = end_of_month
-    active_days = (active_end_date - active_start_date).days + 1
+    active_start_date_utc = max(start_of_month, joining_date_utc)
+    active_end_date_utc = end_of_month
+    
+    active_start_date = active_start_date_utc.astimezone(IST)
+    active_end_date = active_end_date_utc.astimezone(IST)
+    
+    active_days = (active_end_date.date() - active_start_date.date()).days + 1
     is_prorated = active_days < total_days_in_month
 
     # 4. Fetch Salary Structure
@@ -105,14 +114,14 @@ async def calculate_corporate_payroll(
         Holiday.date <= end_of_month,
         Or(Holiday.company_id == employee.company_id, Holiday.company_id == None)
     ).to_list() if company else []
-    holiday_dates = {h.date.date() for h in holidays_list}
+    holiday_dates = {h.date.astimezone(IST).date() for h in holidays_list}
 
     # 6. Count working days, weekends, holidays in active window
     total_working_days = 0
     holidays_weekends = 0
     
     cur_day = active_start_date
-    while cur_day <= active_end_date:
+    while cur_day.date() <= active_end_date.date():
         cur_date = cur_day.date()
         is_weekend = cur_date.weekday() >= 5
         is_holiday = cur_date in holiday_dates
@@ -129,7 +138,7 @@ async def calculate_corporate_payroll(
         Attendance.check_in >= start_of_month,
         Attendance.check_in <= end_of_month
     ).to_list()
-    attendance_map = {log.check_in.date(): log for log in attendance_logs}
+    attendance_map = {log.check_in.astimezone(IST).date(): log for log in attendance_logs}
 
     approved_leaves = await Leave.find(
         Leave.user_id == employee.id,
@@ -138,8 +147,8 @@ async def calculate_corporate_payroll(
 
     leave_type_map = {}
     for leave in approved_leaves:
-        cur = leave.start_date.date()
-        while cur <= leave.end_date.date():
+        cur = leave.start_date.astimezone(IST).date()
+        while cur <= leave.end_date.astimezone(IST).date():
             leave_type_map[cur] = leave.leave_type
             cur += timedelta(days=1)
 
@@ -154,7 +163,7 @@ async def calculate_corporate_payroll(
     casual_leaves_counter = 0
 
     cur_day = active_start_date
-    while cur_day <= active_end_date:
+    while cur_day.date() <= active_end_date.date():
         cur_date = cur_day.date()
         is_weekend = cur_date.weekday() >= 5
         is_holiday = cur_date in holiday_dates
@@ -202,15 +211,20 @@ async def calculate_corporate_payroll(
     gross_base = basic + hra + special_allowance
 
     if is_prorated:
-        prorated_gross = gross_base * (active_days / total_days_in_month)
-        pf_deduction = structure.pf_deduction * (active_days / total_days_in_month)
-        esi_deduction = structure.esi_deduction * (active_days / total_days_in_month)
-        tax_deduction = structure.tax_deduction * (active_days / total_days_in_month)
+        proration_ratio = active_days / total_days_in_month
+        basic = basic * proration_ratio
+        hra = hra * proration_ratio
+        special_allowance = special_allowance * proration_ratio
+        prorated_gross = gross_base * proration_ratio
+        pf_deduction = structure.pf_deduction * proration_ratio
+        esi_deduction = structure.esi_deduction * proration_ratio
+        tax_deduction = structure.tax_deduction * proration_ratio
     else:
         prorated_gross = gross_base
         pf_deduction = structure.pf_deduction
         esi_deduction = structure.esi_deduction
         tax_deduction = structure.tax_deduction
+
 
     if total_working_days > 0:
         daily_rate = prorated_gross / total_working_days
@@ -235,7 +249,7 @@ async def calculate_corporate_payroll(
             # Calculate regular attendance rate
             earned_attn_pts = 0.0
             cur_day = active_start_date
-            while cur_day <= active_end_date:
+            while cur_day.date() <= active_end_date.date():
                 cur_date = cur_day.date()
                 is_weekend = cur_date.weekday() >= 5
                 is_holiday = cur_date in holiday_dates
@@ -271,12 +285,12 @@ async def calculate_corporate_payroll(
                 attn_rate = (earned_attn_pts / total_working_days) * 100.0
             
             if attn_rate >= company.attendance_bonus_threshold:
-                bonuses = basic * (company.attendance_bonus_percentage / 100.0)
+                bonuses = gross_base * (company.attendance_bonus_percentage / 100.0)
             
             # Calculate Performance Incentive
             from app.models.task import Task, TaskStatus
             role_targets = {
-                UserRole.MANAGER: 250.8,
+                UserRole.MANAGER: 200.0,
                 UserRole.ASSISTANT_MANAGER: 190.0,
                 UserRole.HR_MANAGER: 152.0,
                 UserRole.EMPLOYEE: 200.0,
@@ -295,9 +309,6 @@ async def calculate_corporate_payroll(
                     break
             
             incentives = gross_base * (tier_pct / 100.0) * (company.performance_incentive_pool_percentage / 100.0)
-            
-            if incentives > 20000.0:
-                incentives = 20000.0
                 
             # Backlog penalty (> 5 overdue tasks)
             overdue_count = await Task.find(

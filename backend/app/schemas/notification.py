@@ -22,7 +22,9 @@ class NotificationResponse(NotificationBase):
 
     @classmethod
     def from_notification(cls, notification) -> "NotificationResponse":
+        from app.utils.ist_time import to_utc_iso
         return cls(
+
             id=str(notification.id),
             user_id=str(notification.user_id),
             sender_id=str(notification.sender_id) if notification.sender_id else None,
@@ -31,7 +33,8 @@ class NotificationResponse(NotificationBase):
             message=notification.message,
             type=notification.type,
             is_read=notification.is_read,
-            created_at=notification.created_at.isoformat() + 'Z',
+            created_at=to_utc_iso(notification.created_at),
+
         )
 
     class Config:

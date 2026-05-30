@@ -40,7 +40,11 @@ class CreateTaskRequest(BaseModel):
         if values.get("is_recurrent"):
             if v is None:
                 raise ValueError("Deadline is required for recurring tasks")
-            if v <= datetime.now(timezone.utc):
+            # Ensure v is timezone-aware for comparison (assume UTC if naive)
+            v_aware = v
+            if v_aware.tzinfo is None:
+                v_aware = v_aware.replace(tzinfo=timezone.utc)
+            if v_aware <= datetime.now(timezone.utc):
                 raise ValueError("Deadline must be a future date for recurring tasks")
         return v
 
@@ -86,6 +90,7 @@ class TaskResponse(BaseModel):
     
     @classmethod
     def from_task(cls, task, assigned_name: str = None, creator_name: str = None, company_name: str = None, category_names: list = None) -> "TaskResponse":
+        from app.utils.ist_time import to_utc_iso
         return cls(
             id=str(task.id),
             work_description=task.work_description,
@@ -96,8 +101,8 @@ class TaskResponse(BaseModel):
             status=task.status.value,
             priority=task.priority.value,
             task_type=task.task_type.value,
-            deadline=task.deadline.isoformat() + 'Z',
-            completed_at=(task.completed_at.isoformat() + 'Z') if task.completed_at else None,
+            deadline=to_utc_iso(task.deadline),
+            completed_at=to_utc_iso(task.completed_at) if task.completed_at else None,
             reward_given=task.reward_given,
             reward_points=task.reward_points,
             quality_multiplier=task.quality_multiplier,
@@ -106,7 +111,8 @@ class TaskResponse(BaseModel):
             category_ids=[str(cid) for cid in (task.category_ids or [])],
             category_names=category_names if category_names is not None else (task.category_names or []),
             remarks=[RemarkEntry(**r) for r in (task.remarks or [])],
-            created_at=task.created_at.isoformat() + 'Z',
+            created_at=to_utc_iso(task.created_at),
             is_recurring=bool(task.recurring_task_id),
         )
+
 

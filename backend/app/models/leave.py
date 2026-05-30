@@ -3,7 +3,7 @@ from pydantic import Field
 from datetime import datetime
 from enum import Enum
 from typing import Optional
-from app.models.attendance import ist_now
+from app.models.attendance import utc_now
 
 
 class LeaveType(str, Enum):
@@ -23,7 +23,7 @@ class LeaveStatus(str, Enum):
 
 class Leave(Document):
     user_id: PydanticObjectId
-    user_name: str
+    user_name: Optional[str] = None
     leave_type: LeaveType
     start_date: datetime
     end_date: datetime
@@ -34,7 +34,7 @@ class Leave(Document):
     approved_by: Optional[PydanticObjectId] = None
     approved_by_name: Optional[str] = None
     comments: Optional[str] = None
-    created_at: datetime = Field(default_factory=ist_now)
+    created_at: datetime = Field(default_factory=utc_now)
 
     class Settings:
         name = "leaves"

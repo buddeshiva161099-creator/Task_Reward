@@ -48,15 +48,16 @@ async def auto_checkout_stale_sessions():
             except Exception:
                 end_hour, end_min = 18, 0  # Default 6 PM IST
             
-            # Use ist_now() consistently for all time comparisons
-            local_now = ist_now()
-            # Compute session age against IST check-in time
-            session_check_in_naive = session.check_in.replace(tzinfo=None)
-            session_age_hours = (local_now.replace(tzinfo=None) - session_check_in_naive).total_seconds() / 3600
+            # Use timezone-aware calculations
+            from datetime import timezone
+            from app.models.attendance import IST
+            now_utc = datetime.now(timezone.utc)
+            local_now = now_utc.astimezone(IST)
+            session_age_hours = (now_utc - session.check_in).total_seconds() / 3600
             
             # Auto-close if: current IST hour is past (end + 1h) OR session > 14h
             if local_now.hour > end_hour + 1 or session_age_hours > 14:
-                session.check_out = local_now.replace(tzinfo=None)
+                session.check_out = now_utc
                 session.is_auto_closed = True
                 session.remarks = (session.remarks or "") + " [Auto-closed by system]"
                 if "auto_closed" not in session.flags:

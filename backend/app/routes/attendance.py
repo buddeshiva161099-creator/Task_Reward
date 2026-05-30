@@ -5,8 +5,8 @@ from app.auth.dependencies import get_current_user
 from app.services.geofence_utils import (
     is_within_geofence, calculate_drift_km, detect_anomalies, get_distance_to_office
 )
-from datetime import datetime, timedelta
-from app.models.attendance import Attendance, ist_now
+from datetime import datetime, timedelta, timezone
+from app.models.attendance import Attendance, ist_now, IST
 from typing import List, Optional
 from pydantic import BaseModel
 from beanie import PydanticObjectId
@@ -63,8 +63,10 @@ def _build_response(attendance: Attendance, user: Optional[User] = None) -> dict
 @router.post("/check-in", response_model=AttendanceResponse)
 async def check_in(req: AttendanceRequest, current_user: User = Depends(get_current_user)):
     """Record a check-in with live location and smart validation."""
-    now_ist = ist_now()
-    today_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    now_utc = datetime.now(timezone.utc)
+    now_ist = now_utc.astimezone(IST)
+    today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start = today_start_ist.astimezone(timezone.utc)
     
     existing = await Attendance.find_one(
         Attendance.user_id == current_user.id,
@@ -187,7 +189,8 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
 
     # --- MINIMUM SESSION DURATION CHECK ---
     if company and company.min_session_minutes > 0:
-        session_duration = (ist_now() - attendance.check_in).total_seconds() / 60
+        now_utc = datetime.now(timezone.utc)
+        session_duration = (now_utc - attendance.check_in).total_seconds() / 60
         if session_duration < company.min_session_minutes:
             remaining = int(company.min_session_minutes - session_duration)
             raise HTTPException(
@@ -228,7 +231,7 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
                 checkout_flags.append(f"location_drift_{drift_km}km")
 
     # Update attendance record
-    attendance.check_out = ist_now()
+    attendance.check_out = datetime.now(timezone.utc)
     attendance.location_out = {"lat": req.lat, "lng": req.lng}
     attendance.address_out = req.address
     attendance.location_drift_km = drift_km
@@ -239,7 +242,7 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
     # Automatically recalculate draft payroll if it exists and is not locked
     try:
         from app.routes.payroll import calculate_corporate_payroll
-        month_str = attendance.check_in.strftime("%Y-%m")
+        month_str = attendance.check_in.astimezone(IST).strftime("%Y-%m")
         await calculate_corporate_payroll(
             employee=current_user,
             month=month_str

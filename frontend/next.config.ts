@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 const nextConfig: NextConfig = {
   images: {
@@ -8,6 +9,9 @@ const nextConfig: NextConfig = {
   typescript: {
     // Skip typescript type checking during production builds for speed
     ignoreBuildErrors: true,
+  },
+  turbopack: {
+    root: path.resolve(__dirname),
   },
 };
 

@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, validator
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
+from app.models.task import TaskPriority
 
 class RecurrenceType(str, Enum):
     DAILY = "daily"
@@ -26,7 +27,13 @@ class RecurrenceRule(Document):
     """
     name: str = Field(..., description="Human readable rule name")
     created_by: PydanticObjectId = Field(..., description="User who created the rule")
-    task_template_id: PydanticObjectId = Field(..., description="Template task to clone for each occurrence")
+    task_template_id: Optional[PydanticObjectId] = Field(default=None, description="Template task to clone for each occurrence")
+    
+    # Decoupled task template configuration
+    work_description: Optional[str] = Field(default=None, description="Blueprint task description")
+    priority: Optional[TaskPriority] = Field(default=TaskPriority.MEDIUM, description="Blueprint task priority")
+    company_ids: List[PydanticObjectId] = Field(default_factory=list, description="Target companies list")
+    category_ids: List[PydanticObjectId] = Field(default_factory=list, description="Target categories list")
     recurrence_type: RecurrenceType
     interval: int = Field(1, description="Every N days / weeks / months")
     weekdays: Optional[List[int]] = None  # 0=Mon … 6=Sun, used for weekly

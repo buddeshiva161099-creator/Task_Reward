@@ -79,15 +79,18 @@ async def register(request: RegisterRequest):
 @router.get("/me")
 async def get_me(current_user: User = Depends(get_current_user)):
     """Get current authenticated user info."""
+    from app.utils.ist_time import to_utc_iso
     return {
+
         "id": str(current_user.id),
         "name": current_user.name,
         "email": current_user.email,
         "role": current_user.role.value,
         "reward_points": current_user.reward_points,
         "is_active": current_user.is_active,
-        "created_at": current_user.created_at.isoformat() + 'Z',
+        "created_at": to_utc_iso(current_user.created_at),
     }
+
 
 
 @router.post("/change-password")

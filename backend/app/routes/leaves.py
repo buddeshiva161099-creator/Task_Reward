@@ -5,7 +5,7 @@ from app.models.leave_balance import LeaveBalance
 from app.models.notification import Notification
 from app.auth.dependencies import get_current_user, require_hr_team, require_any_hr_manager, require_hr_manager, require_management_team
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 from beanie import PydanticObjectId
 from beanie.operators import In
@@ -124,7 +124,7 @@ async def get_leaves_history_alias(current_user: User = Depends(get_current_user
             "reason": l.reason,
             "status": l.status.value,
             "comments": l.comments,
-            "created_at": l.created_at.isoformat() + "Z",
+            "created_at": l.created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
             "verified_by_name": l.verified_by_name,
             "approved_by_name": l.approved_by_name,
         }
@@ -225,7 +225,7 @@ async def get_my_leaves(current_user: User = Depends(get_current_user)):
             "reason": l.reason,
             "status": l.status.value,
             "comments": l.comments,
-            "created_at": l.created_at.isoformat(),
+            "created_at": l.created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
             "verified_by_name": l.verified_by_name,
             "approved_by_name": l.approved_by_name,
         }
@@ -255,7 +255,7 @@ async def get_pending_leaves(user: User = Depends(require_management_team)):
             "reason": l.reason,
             "status": l.status.value,
             "comments": l.comments,
-            "created_at": l.created_at.isoformat(),
+            "created_at": l.created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
             "verified_by_name": l.verified_by_name,
             "approved_by_name": l.approved_by_name,
         }
@@ -288,7 +288,7 @@ async def get_all_leaves(user: User = Depends(require_management_team)):
             "reason": l.reason,
             "status": l.status.value,
             "comments": l.comments,
-            "created_at": l.created_at.isoformat(),
+            "created_at": l.created_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
             "verified_by_name": l.verified_by_name,
             "approved_by_name": l.approved_by_name,
         }

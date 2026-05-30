@@ -113,18 +113,23 @@ async def create_task(
     recurring_rule = None
     if request.is_recurrent and request.recurrence:
         from app.models.recurring_task import RecurrenceRule, RecurrenceType, RecurrenceEndType
+        from app.models.task import TaskPriority
         from datetime import datetime, timezone
         from app.services.recurrence_service import calculate_next_run
 
         parsed_end_date = None
         occurrences_count = None
+        db_end_type = RecurrenceEndType.NEVER
+
         if request.recurrence.end_type == "date" and request.recurrence.end_value:
+            db_end_type = RecurrenceEndType.ON_DATE
             try:
                 # Handle ISO format dates
                 parsed_end_date = datetime.fromisoformat(request.recurrence.end_value.replace("Z", ""))
             except Exception:
                 parsed_end_date = None
         elif request.recurrence.end_type == "count" and request.recurrence.end_value:
+            db_end_type = RecurrenceEndType.AFTER_OCCURRENCES
             try:
                 occurrences_count = int(request.recurrence.end_value)
             except Exception:
@@ -133,13 +138,18 @@ async def create_task(
         recurring_rule = RecurrenceRule(
             name=f"Recurring: {request.work_description[:40]}",
             created_by=current_user.id,
-            task_template_id=last_task.id,
+            task_template_id=last_task.id, # Keep for legacy database fallback compatibility
+            work_description=request.work_description,
+            priority=TaskPriority(request.priority),
+            assigned_to_list=[emp.id for emp in target_employees],
+            company_ids=[cid for cid in target_companies if cid is not None],
+            category_ids=[PydanticObjectId(cid) for cid in request.category_ids] if request.category_ids else [],
             recurrence_type=RecurrenceType(request.recurrence.type),
             interval=request.recurrence.interval,
             weekdays=request.recurrence.weekdays,
             month_days=[request.recurrence.month_day] if request.recurrence.month_day else None,
             start_date=datetime.now(timezone.utc),
-            end_type=RecurrenceEndType(request.recurrence.end_type),
+            end_type=db_end_type,
             end_date=parsed_end_date,
             occurrences=occurrences_count,
             occurrence_count=1,

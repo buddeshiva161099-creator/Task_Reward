@@ -8,8 +8,12 @@ from datetime import datetime, timezone, timedelta
 IST = timezone(timedelta(hours=5, minutes=30))
 
 def ist_now() -> datetime:
-    """Return current datetime in IST as a naive datetime (no tzinfo) for consistent DB storage."""
-    return datetime.now(IST).replace(tzinfo=None)
+    """Return current datetime in IST as a timezone-aware datetime."""
+    return datetime.now(IST)
+
+def utc_now() -> datetime:
+    """Return current datetime in UTC as a timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
 from typing import Optional, Dict, List
@@ -18,7 +22,7 @@ from typing import Optional, Dict, List
 class Attendance(Document):
     user_id: PydanticObjectId
     company_id: PydanticObjectId
-    check_in: datetime = Field(default_factory=ist_now)
+    check_in: datetime = Field(default_factory=utc_now)
     check_out: Optional[datetime] = None
     location_in: Optional[Dict[str, float]] = None  # {"lat": 0.0, "lng": 0.0}
     location_out: Optional[Dict[str, float]] = None # {"lat": 0.0, "lng": 0.0}

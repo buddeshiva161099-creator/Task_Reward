@@ -54,27 +54,53 @@ async def spawn_tasks_from_rule(rule: RecurrenceRule):
         await rule.save()
         return
 
-    # Determine assignees – for now, we just use the task_template's assigned_to field if present
-    # In a real implementation you would store assignee list in the rule or derive from company hierarchy.
-    template_task = await Task.get(rule.task_template_id)
-    if not template_task:
-        raise ValueError("Task template not found")
-    assignee_ids = [template_task.assigned_to]
-    company_ids = [template_task.company_id] if template_task.company_id else [None]
+    # 1. Determine configuration (with legacy fallback support)
+    work_description = rule.work_description
+    priority = rule.priority
+    category_ids = rule.category_ids or []
+    assignee_ids = rule.assigned_to_list or []
+    company_ids = rule.company_ids or []
+
+    if not work_description and rule.task_template_id:
+        template_task = await Task.get(rule.task_template_id)
+        if template_task:
+            work_description = template_task.work_description
+            priority = template_task.priority
+            category_ids = template_task.category_ids or []
+            if not assignee_ids:
+                assignee_ids = [template_task.assigned_to]
+            if not company_ids:
+                company_ids = [template_task.company_id] if template_task.company_id else []
+        else:
+            # Blueprint task deleted and no configuration exists on the rule
+            rule.is_active = False
+            await rule.save()
+            import logging
+            logging.getLogger("app").warning(
+                f"Deactivated recurring rule {rule.id} ('{rule.name}') because its template task was deleted "
+                "and no decoupled configuration exists."
+            )
+            return
+
+    # Standardize empty company list to [None] to ensure the loop runs at least once
+    companies_to_spawn = company_ids if company_ids else [None]
 
     # Spawn tasks
-    for cid in company_ids:
+    for cid in companies_to_spawn:
         for uid in assignee_ids:
-            deadline = rule.next_run.replace(hour=23, minute=59, second=59) if rule.next_run else None
+            # Preserve the original time of day
+            deadline = rule.next_run
+            
             await task_service.create_task(
-                work_description=template_task.work_description,
+                work_description=work_description,
                 assigned_to=str(uid),
                 created_by=str(rule.created_by),
-                priority=template_task.priority.value,
+                priority=priority.value if hasattr(priority, "value") else str(priority),
                 deadline=deadline,
-                task_type="assigned",
+                task_type="assigned" if uid != rule.created_by else "personal",
                 company_id=str(cid) if cid else None,
                 recurring_task_id=rule.id,
+                category_ids=[str(cat_id) for cat_id in category_ids],
             )
 
     rule.last_occurrence = rule.next_run

@@ -122,13 +122,15 @@ def parse_time_str(time_str: str) -> datetime:
 
 def get_attendance_status(check_in: datetime, work_start_time_str: str) -> str:
     try:
+        from app.models.attendance import IST
+        check_in_ist = check_in.astimezone(IST)
         work_start = parse_time_str(work_start_time_str)
-        work_start_dt = check_in.replace(hour=work_start.hour, minute=work_start.minute, second=0, microsecond=0)
+        work_start_dt = check_in_ist.replace(hour=work_start.hour, minute=work_start.minute, second=0, microsecond=0)
         
-        if check_in <= work_start_dt:
+        if check_in_ist <= work_start_dt:
             return "present"
         else:
-            diff_minutes = (check_in - work_start_dt).total_seconds() / 60.0
+            diff_minutes = (check_in_ist - work_start_dt).total_seconds() / 60.0
             if diff_minutes <= 30.0:
                 return "late_under_30"
             else:
@@ -138,7 +140,9 @@ def get_attendance_status(check_in: datetime, work_start_time_str: str) -> str:
 
 
 def _build_company_response(c: Company) -> CompanyResponse:
+    from app.utils.ist_time import to_utc_iso
     return CompanyResponse(
+
         id=str(c.id),
         name=c.name,
         description=c.description,
@@ -149,7 +153,8 @@ def _build_company_response(c: Company) -> CompanyResponse:
         work_type=c.work_type,
         flexible_hours=c.flexible_hours,
         cut_out_time=c.cut_out_time,
-        created_at=c.created_at.isoformat() + 'Z',
+        created_at=to_utc_iso(c.created_at),
+
         task_priority_points=c.task_priority_points,
         delay_penalties=c.delay_penalties,
         early_completion_multiplier=c.early_completion_multiplier,
@@ -284,15 +289,20 @@ async def update_company(
 
     # 2. Recalculate attendance log statuses if work_start_time changed
     if work_start_time_changed:
-        from app.models.attendance import Attendance, ist_now
+        from app.models.attendance import Attendance, IST
+        from datetime import timezone
         
-        # Determine the current month window in IST
-        now = ist_now()
-        start_of_month = datetime(now.year, now.month, 1)
-        if now.month == 12:
-            end_of_month = datetime(now.year + 1, 1, 1) - timedelta(microseconds=1)
+        # Determine the current month window in IST and convert to UTC
+        now_utc = datetime.now(timezone.utc)
+        now_ist = now_utc.astimezone(IST)
+        start_of_month_ist = datetime(now_ist.year, now_ist.month, 1, tzinfo=IST)
+        if now_ist.month == 12:
+            end_of_month_ist = datetime(now_ist.year + 1, 1, 1, tzinfo=IST) - timedelta(microseconds=1)
         else:
-            end_of_month = datetime(now.year, now.month + 1, 1) - timedelta(microseconds=1)
+            end_of_month_ist = datetime(now_ist.year, now_ist.month + 1, 1, tzinfo=IST) - timedelta(microseconds=1)
+            
+        start_of_month = start_of_month_ist.astimezone(timezone.utc)
+        end_of_month = end_of_month_ist.astimezone(timezone.utc)
 
         # Find current month attendance logs for this company
         attendance_logs = await Attendance.find(
@@ -314,10 +324,11 @@ async def update_company(
     if update_data:
         from app.models.payroll import Payroll, PayrollStatus
         from app.routes.payroll import calculate_corporate_payroll
-        from app.models.attendance import ist_now
+        from app.models.attendance import IST
+        from datetime import timezone
         
-        now = ist_now()
-        month_str = now.strftime("%Y-%m")
+        now_ist = datetime.now(timezone.utc).astimezone(IST)
+        month_str = now_ist.strftime("%Y-%m")
         
         users = await User.find(User.company_id == company.id).to_list()
         for u in users:

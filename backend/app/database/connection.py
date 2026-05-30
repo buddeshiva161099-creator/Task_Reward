@@ -58,7 +58,7 @@ async def init_db():
     """Initialize MongoDB connection and Beanie ODM."""
     try:
         # Set a 2-second timeout for server selection to quickly detect if local mongo is down
-        client = AsyncMongoClient(settings.MONGODB_URL, serverSelectionTimeoutMS=2000)
+        client = AsyncMongoClient(settings.MONGODB_URL, serverSelectionTimeoutMS=2000, tz_aware=True)
         database = client[settings.DATABASE_NAME]
         
         # Force a connection check
@@ -87,7 +87,7 @@ async def init_db():
             mongomock.Database.list_collection_names = patched_list_collection_names
  
             from mongomock_motor import AsyncMongoMockClient
-            mock_client = AsyncMongoMockClient()
+            mock_client = AsyncMongoMockClient(tz_aware=True)
             mock_database = mock_client[settings.DATABASE_NAME]
             
             await init_beanie(

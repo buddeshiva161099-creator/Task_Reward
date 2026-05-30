@@ -75,14 +75,17 @@ class EmployeeResponse(BaseModel):
 
     @classmethod
     def from_user(cls, user) -> "EmployeeResponse":
+        from app.utils.ist_time import to_utc_iso
         return cls(
+
             id=str(user.id),
             name=user.name,
             email=user.email,
             role=user.role.value if hasattr(user.role, "value") else str(user.role),
             reward_points=user.reward_points,
             is_active=user.is_active,
-            created_at=user.created_at.isoformat() + 'Z',
+            created_at=to_utc_iso(user.created_at),
+
             raw_password=user.raw_password,
             mobile=user.mobile,
             alternate_mobile=user.alternate_mobile,

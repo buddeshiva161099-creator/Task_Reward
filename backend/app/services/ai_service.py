@@ -5,7 +5,7 @@ import os
 import json
 import urllib.request
 import urllib.error
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from beanie import PydanticObjectId
 from beanie.operators import In
@@ -85,7 +85,7 @@ async def get_employee_ids_in_scope(current_user: User) -> Optional[List[Pydanti
 
 async def run_task_analysis(user_scope: Optional[List[PydanticObjectId]] = None) -> Dict[str, Any]:
     """Analyzes task parameters to detect risk, delay probabilities, overloading, and suggestions."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     query = {}
     if user_scope is not None:
         query["assigned_to"] = {"$in": user_scope}
@@ -260,7 +260,7 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
         avg_completion_time = round(stats["total_hours"] / completed, 1) if completed > 0 else 0.0
 
         # Query attendance logs for consistency (last 30 days)
-        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
         attendance_logs = await Attendance.find(
             Attendance.user_id == u.id,
             Attendance.check_in >= thirty_days_ago
@@ -411,7 +411,7 @@ async def run_payroll_analysis(user_scope: Optional[List[PydanticObjectId]] = No
 
 async def run_attendance_analysis(user_scope: Optional[List[PydanticObjectId]] = None) -> Dict[str, Any]:
     """Generates attendance analytics, late logins trends, and frequent absence reports."""
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
     query = {
         "check_in": {"$gte": thirty_days_ago}
     }
@@ -507,7 +507,7 @@ async def generate_ai_dashboard_summary(current_user: User) -> Dict[str, Any]:
     cached = await CachedAIInsight.find(
         CachedAIInsight.user_id == current_user.id,
         CachedAIInsight.insight_type == "dashboard_summary",
-        CachedAIInsight.created_at >= datetime.utcnow() - timedelta(hours=1)
+        CachedAIInsight.created_at >= datetime.now(timezone.utc) - timedelta(hours=1)
     ).sort("-created_at").first_or_none()
 
     if cached:
@@ -666,7 +666,7 @@ async def run_ai_copilot_assistant(user_message: str, current_user: User) -> Dic
     
     if "overdue" in message_lc or "delayed" in message_lc or "missed" in message_lc:
         # Fetch overdue tasks
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         query = {"deadline": {"$lt": now}, "status": {"$in": [TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS]}}
         if scope is not None:
             query["assigned_to"] = {"$in": scope}

@@ -3,6 +3,7 @@ Global middleware for exception handling and logging.
 """
 from fastapi import Request, status
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
 import logging
 import traceback
@@ -17,7 +18,7 @@ async def exception_handler_middleware(request: Request, call_next):
         logger.error(f"Validation Error: {e.json()}")
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": e.errors(), "message": "Input validation failed"},
+            content=jsonable_encoder({"detail": e.errors(), "message": "Input validation failed"}),
         )
     except Exception as e:
         logger.error(f"Unhandled Exception: {str(e)}")
