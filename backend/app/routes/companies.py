@@ -1,7 +1,7 @@
 """
 Company management routes - admin CRUD + public list for dropdowns.
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Request
 from app.models.company import Company
 from app.auth.dependencies import get_current_user, require_admin, require_any_hr_manager
 from app.models.user import User
@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from beanie import PydanticObjectId
 from datetime import datetime, timedelta
+from app.services.audit_service import AuditService
 import logging
 
 logger = logging.getLogger(__name__)
@@ -196,6 +197,7 @@ async def list_all_companies(admin: User = Depends(require_admin)):
 @router.post("", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_company(
     request: CreateCompanyRequest,
+    http_request: Request,
     admin: User = Depends(require_admin),
 ):
     """Create a new company (admin only)."""
@@ -230,6 +232,17 @@ async def create_company(
 
     company = Company(**company_data)
     await company.insert()
+
+    await AuditService.log_event(
+        actor=admin,
+        entity_type="company",
+        entity_id=company.id,
+        action="created",
+        after_state=company.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     return _build_company_response(company)
 
 
@@ -237,6 +250,7 @@ async def create_company(
 async def update_company(
     company_id: str,
     request: UpdateCompanyRequest,
+    http_request: Request,
     user: User = Depends(require_any_hr_manager),
 ):
     """Update a company (admin, HR and Manager authorized)."""
@@ -244,6 +258,7 @@ async def update_company(
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
 
+    before_state = company.model_dump()
     # Detect if work_start_time is changing
     work_start_time_changed = (
         request.work_start_time is not None
@@ -338,6 +353,17 @@ async def update_company(
                     await calculate_corporate_payroll(employee=u, month=month_str)
                 except Exception as pe:
                     logger.warning(f"Could not recalculate payroll for user {u.name}: {pe}")
+
+    await AuditService.log_event(
+        actor=user,
+        entity_type="company",
+        entity_id=company.id,
+        action="updated",
+        before_state=before_state,
+        after_state=company.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
 
     return _build_company_response(company)
 

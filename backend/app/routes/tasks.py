@@ -1,7 +1,7 @@
 """
 Task management routes - CRUD for tasks.
 """
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Query, Request
 from app.schemas.task import CreateTaskRequest, UpdateTaskRequest, TaskResponse
 from app.services import task_service
 from app.auth.dependencies import get_current_user
@@ -11,6 +11,8 @@ from beanie import PydanticObjectId
 from beanie.operators import In
 from typing import List, Optional
 from app.models.category import Category
+from app.services.audit_service import AuditService
+from app.services.notification_service import NotificationService
 
 router = APIRouter(prefix="/tasks", tags=["Task Management"])
 
@@ -26,6 +28,7 @@ async def _resolve_company_name(company_id) -> Optional[str]:
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 async def create_task(
     request: CreateTaskRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
 ):
     """Create a new task. Supports multiple assignees, multiple companies, and recurrence."""
@@ -168,6 +171,28 @@ async def create_task(
     if not last_task:
         raise HTTPException(status_code=400, detail="Failed to create tasks.")
 
+    # Notify assignees
+    for emp in target_employees:
+        if emp.id != current_user.id:
+            await NotificationService.notify_user(
+                user_id=emp.id,
+                sender_id=current_user.id,
+                title="New Task Assigned",
+                message=f"You have been assigned a new task: {request.work_description}",
+                type="task_assigned"
+            )
+
+    # Audit logging (log the last created task as a representative)
+    await AuditService.log_event(
+        actor=current_user,
+        entity_type="task",
+        entity_id=last_task.id,
+        action="created",
+        after_state=last_task.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     # Resolve names for response (using the last created task)
     assigned_user = await User.get(last_task.assigned_to)
     creator = await User.get(last_task.created_by)
@@ -299,6 +324,7 @@ async def list_tasks(
 async def update_task(
     task_id: str,
     request: UpdateTaskRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
 ):
     """Update a task. Employees can only update their own tasks."""
@@ -339,6 +365,7 @@ async def update_task(
                 detail="You can only assign tasks to employees under your hierarchy."
             )
 
+    before_state = db_task.model_dump()
     is_management = current_user.role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ASSISTANT_MANAGER, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER]
     try:
         task = await task_service.update_task(
@@ -364,6 +391,36 @@ async def update_task(
             detail="Task not found",
         )
 
+    # Notify assignee if task is completed
+    if request.status == "completed" and db_task.status != "completed":
+        # If reassigned and completed, notify the creator
+        await NotificationService.notify_user(
+            user_id=db_task.created_by,
+            sender_id=current_user.id,
+            title="Task Completed",
+            message=f"{current_user.name} completed the task: {db_task.work_description}",
+            type="task_completed"
+        )
+    elif request.status == "rejected" and db_task.status != "rejected":
+         await NotificationService.notify_user(
+            user_id=db_task.assigned_to,
+            sender_id=current_user.id,
+            title="Task Rejected",
+            message=f"Your task '{db_task.work_description}' was rejected by {current_user.name}.",
+            type="system"
+        )
+
+    await AuditService.log_event(
+        actor=current_user,
+        entity_type="task",
+        entity_id=task.id,
+        action="updated",
+        before_state=before_state,
+        after_state=task.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     assigned_user = await User.get(task.assigned_to)
     creator = await User.get(task.created_by)
     company_name = await _resolve_company_name(task.company_id)
@@ -386,6 +443,7 @@ async def update_task(
 @router.delete("/{task_id}")
 async def delete_task(
     task_id: str,
+    http_request: Request,
     current_user: User = Depends(get_current_user),
 ):
     """Delete a task (management only)."""
@@ -414,10 +472,22 @@ async def delete_task(
             detail="You do not have permission to delete this task."
         )
 
+    before_state = db_task.model_dump()
     success = await task_service.delete_task(task_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Task not found",
         )
+
+    await AuditService.log_event(
+        actor=current_user,
+        entity_type="task",
+        entity_id=db_task.id,
+        action="deleted",
+        before_state=before_state,
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     return {"message": "Task deleted successfully"}

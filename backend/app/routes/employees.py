@@ -1,13 +1,14 @@
 """
 Employee management routes - admin only CRUD operations.
 """
-from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Request
 from app.schemas.user import CreateEmployeeRequest, UpdateEmployeeRequest, EmployeeResponse
 from app.services import user_service, dashboard_service
 from app.auth.dependencies import require_hr_team, require_any_hr_manager, require_management_team
 from app.models.user import User, UserRole
 from beanie import PydanticObjectId
 from typing import List
+from app.services.audit_service import AuditService
 from app.utils.uploads import IDENTITY_ALLOWED_CONTENT_TYPES, save_upload_file
 
 NON_ADMIN_ROLES = [
@@ -287,6 +288,7 @@ async def get_employee_stats(employee_id: str, user: User = Depends(require_mana
 @router.post("", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
 async def create_employee(
     request: CreateEmployeeRequest,
+    http_request: Request,
     user: User = Depends(require_management_team),
 ):
     """Create a new employee (Management team)."""
@@ -336,6 +338,17 @@ async def create_employee(
             hiring_date=request.hiring_date,
             hiring_company=request.hiring_company,
         )
+
+        await AuditService.log_event(
+            actor=user,
+            entity_type="employee",
+            entity_id=employee.id,
+            action="created",
+            after_state=employee.model_dump(exclude={"password_hash"}),
+            ip_address=http_request.client.host,
+            user_agent=http_request.headers.get("user-agent")
+        )
+
         return EmployeeResponse.from_user(employee)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
@@ -349,6 +362,7 @@ async def create_employee(
 async def update_employee(
     employee_id: str,
     request: UpdateEmployeeRequest,
+    http_request: Request,
     user: User = Depends(require_management_team),
 ):
     from beanie import PydanticObjectId
@@ -357,6 +371,7 @@ async def update_employee(
     if not target_employee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
 
+    before_state = target_employee.model_dump(exclude={"password_hash"})
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None and target_employee.id not in visible_ids:
         raise HTTPException(
@@ -423,6 +438,18 @@ async def update_employee(
         )
         if not employee:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+        await AuditService.log_event(
+            actor=user,
+            entity_type="employee",
+            entity_id=employee.id,
+            action="updated",
+            before_state=before_state,
+            after_state=employee.model_dump(exclude={"password_hash"}),
+            ip_address=http_request.client.host,
+            user_agent=http_request.headers.get("user-agent")
+        )
+
         return EmployeeResponse.from_user(employee)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -433,7 +460,11 @@ async def update_employee(
 # ────────────────────────────────────────────────────────
 
 @router.delete("/{employee_id}")
-async def delete_employee(employee_id: str, user: User = Depends(require_management_team)):
+async def delete_employee(
+    employee_id: str,
+    http_request: Request,
+    user: User = Depends(require_management_team)
+):
     """Soft delete an employee."""
     from beanie import PydanticObjectId
     target_employee = await User.get(PydanticObjectId(employee_id))
@@ -442,12 +473,30 @@ async def delete_employee(employee_id: str, user: User = Depends(require_managem
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None and target_employee.id not in visible_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage employees under your hierarchy.")
+
+    before_state = target_employee.model_dump(exclude={"password_hash"})
     employee = await user_service.soft_delete_employee(employee_id)
+
+    await AuditService.log_event(
+        actor=user,
+        entity_type="employee",
+        entity_id=employee.id,
+        action="deactivated",
+        before_state=before_state,
+        after_state=employee.model_dump(exclude={"password_hash"}),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     return {"message": f"Employee {employee.name} soft-deleted"}
 
 
 @router.post("/{employee_id}/restore", response_model=EmployeeResponse)
-async def restore_employee(employee_id: str, user: User = Depends(require_management_team)):
+async def restore_employee(
+    employee_id: str,
+    http_request: Request,
+    user: User = Depends(require_management_team)
+):
     """Restore a soft-deleted employee."""
     from beanie import PydanticObjectId
     target_employee = await User.get(PydanticObjectId(employee_id))
@@ -456,12 +505,30 @@ async def restore_employee(employee_id: str, user: User = Depends(require_manage
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None and target_employee.id not in visible_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage employees under your hierarchy.")
+
+    before_state = target_employee.model_dump(exclude={"password_hash"})
     employee = await user_service.restore_employee(employee_id)
+
+    await AuditService.log_event(
+        actor=user,
+        entity_type="employee",
+        entity_id=employee.id,
+        action="restored",
+        before_state=before_state,
+        after_state=employee.model_dump(exclude={"password_hash"}),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     return EmployeeResponse.from_user(employee)
 
 
 @router.delete("/{employee_id}/permanent")
-async def permanent_delete_employee(employee_id: str, user: User = Depends(require_management_team)):
+async def permanent_delete_employee(
+    employee_id: str,
+    http_request: Request,
+    user: User = Depends(require_management_team)
+):
     """Permanently delete an employee and all associated records."""
     from beanie import PydanticObjectId
     target_employee = await User.get(PydanticObjectId(employee_id))
@@ -470,7 +537,20 @@ async def permanent_delete_employee(employee_id: str, user: User = Depends(requi
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None and target_employee.id not in visible_ids:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only manage employees under your hierarchy.")
+
+    before_state = target_employee.model_dump(exclude={"password_hash"})
     success = await user_service.hard_delete_employee(employee_id)
     if not success:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+    await AuditService.log_event(
+        actor=user,
+        entity_type="employee",
+        entity_id=target_employee.id,
+        action="permanently_deleted",
+        before_state=before_state,
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     return {"message": "Employee and all associated records permanently deleted"}

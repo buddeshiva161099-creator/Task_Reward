@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.models.user import User, UserRole
 from app.models.company import Company
 from app.auth.dependencies import get_current_user
+from app.services.audit_service import AuditService
 from app.services.geofence_utils import (
     is_within_geofence, calculate_drift_km, detect_anomalies, get_distance_to_office
 )
@@ -61,7 +62,11 @@ def _build_response(attendance: Attendance, user: Optional[User] = None) -> dict
 
 
 @router.post("/check-in", response_model=AttendanceResponse)
-async def check_in(req: AttendanceRequest, current_user: User = Depends(get_current_user)):
+async def check_in(
+    req: AttendanceRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user)
+):
     """Record a check-in with live location and smart validation."""
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(IST)
@@ -172,10 +177,25 @@ async def check_in(req: AttendanceRequest, current_user: User = Depends(get_curr
         device_fingerprint=req.device_fingerprint,
     )
     await attendance.insert()
+
+    await AuditService.log_event(
+        actor=current_user,
+        entity_type="attendance",
+        entity_id=attendance.id,
+        action="check_in",
+        after_state=attendance.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     return _build_response(attendance, current_user)
 
 @router.post("/check-out", response_model=AttendanceResponse)
-async def check_out(req: AttendanceRequest, current_user: User = Depends(get_current_user)):
+async def check_out(
+    req: AttendanceRequest,
+    http_request: Request,
+    current_user: User = Depends(get_current_user)
+):
     """Record a check-out with smart validation."""
     attendance = await Attendance.find(
         Attendance.user_id == current_user.id,
@@ -185,6 +205,7 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
     if not attendance:
         raise HTTPException(status_code=400, detail="No active check-in session found.")
 
+    before_state = attendance.model_dump()
     company = await Company.get(current_user.company_id) if current_user.company_id else None
 
     # --- MINIMUM SESSION DURATION CHECK ---
@@ -239,6 +260,17 @@ async def check_out(req: AttendanceRequest, current_user: User = Depends(get_cur
     attendance.flags = checkout_flags
     await attendance.save()
     
+    await AuditService.log_event(
+        actor=current_user,
+        entity_type="attendance",
+        entity_id=attendance.id,
+        action="check_out",
+        before_state=before_state,
+        after_state=attendance.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     # Automatically recalculate draft payroll if it exists and is not locked
     try:
         from app.routes.payroll import calculate_corporate_payroll

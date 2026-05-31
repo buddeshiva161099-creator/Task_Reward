@@ -75,6 +75,19 @@ async def auto_checkout_stale_sessions():
                 if "auto_closed" not in session.flags:
                     session.flags.append("auto_closed")
                 await session.save()
+
+                # Send missed checkout alert
+                try:
+                    from app.services.notification_service import NotificationService
+                    await NotificationService.notify_user(
+                        user_id=session.user_id,
+                        title="Missed Checkout Alert",
+                        message="You missed to check out yesterday. Your session was automatically closed by the system.",
+                        type="system"
+                    )
+                except Exception as ne:
+                    _logger.warning(f"Could not send auto-checkout notification: {ne}")
+
                 _logger.info(f"[AUTO-CHECKOUT] Closed stale session for user {session.user_id}")
     except Exception as e:
         _logger.error(f"Error in auto-checkout: {e}")
