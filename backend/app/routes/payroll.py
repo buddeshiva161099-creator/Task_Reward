@@ -1002,17 +1002,17 @@ async def get_my_payslips(current_user: User = Depends(get_current_user)):
         {
             "id": str(p.id),
             "month": p.month,
-            "base_salary": p.base_salary,
-            "earned_salary": p.earned_salary,
-            "overtime_pay": p.overtime_pay,
-            "incentives": p.incentives,
-            "bonuses": p.bonuses,
-            "penalties": p.penalties,
-            "deductions": p.deductions + p.pf_deduction + p.esi_deduction + p.tax_deduction,
-            "net_salary": p.net_salary,
+            "base_salary": p.base_salary or 0.0,
+            "earned_salary": p.earned_salary or 0.0,
+            "overtime_pay": p.overtime_pay or 0.0,
+            "incentives": p.incentives or 0.0,
+            "bonuses": p.bonuses or 0.0,
+            "penalties": p.penalties or 0.0,
+            "deductions": (p.deductions or 0.0) + (p.pf_deduction or 0.0) + (p.esi_deduction or 0.0) + (p.tax_deduction or 0.0),
+            "net_salary": p.net_salary or 0.0,
             "approved_by": p.approved_by_name,
             "finalized_at": to_utc_iso(p.updated_at),
-            "status": p.status.value
+            "status": p.status.value if hasattr(p.status, "value") else str(p.status)
         }
         for p in payslips
     ]
