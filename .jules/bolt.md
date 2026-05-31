@@ -1,0 +1,3 @@
+## 2025-05-24 - Beanie Query Serialization in Aggregations
+**Learning:** Python comparison expressions (e.g., `Model.field >= value`) in Beanie return internal `Comparison` objects. These are not directly serializable for MongoDB's native driver (Motor/PyMongo) when nested in dictionaries, which often happens in `aggregate` or `distinct` calls. This leads to runtime `bson.errors.InvalidDocument` or `TypeError`.
+**Action:** Always use Beanie operators from `beanie.operators` (e.g., `GTE`, `NE`, `In`) when building manual query dictionaries for `aggregate` or `distinct`. These operators return plain dictionaries that are safe for the driver.
