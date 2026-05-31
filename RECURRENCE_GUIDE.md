@@ -25,7 +25,10 @@ You can configure schedules with the following frequencies:
 
 ### **Monthly**
 *   **Logic**: Tasks are generated on a specific day of the month.
-*   **Constraint**: If you select the 31st, for months with fewer days, the system safely defaults to the 28th to ensure zero missed occurrences.
+*   **Resilience**: The system handles month-end transitions (e.g., Jan 31st) by automatically adjusting to the last day of shorter months (Feb 28th) and recovering the original date (Mar 31st) in subsequent cycles.
+
+### **Yearly**
+*   **Logic**: Tasks are generated once per year on the same date.
 
 ---
 

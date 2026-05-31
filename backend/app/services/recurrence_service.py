@@ -7,37 +7,44 @@ from beanie import PydanticObjectId
 from typing import List, Optional
 
 def calculate_next_run(rule: RecurrenceRule) -> Optional[datetime]:
-    """Calculate the next run time based on the recurrence rule."""
-    now = datetime.now(timezone.utc)
+    """Calculate the next run time based on the recurrence rule using robust dateutil logic."""
     # Use the rule's start_date if next_run not set
+    # Note: reference is usually the PREVIOUS run time or start_date
     reference = rule.next_run or rule.start_date
     
     if rule.recurrence_type == RecurrenceType.DAILY:
-        return reference + timedelta(days=rule.interval)
+        return reference + relativedelta(days=rule.interval)
     
     if rule.recurrence_type == RecurrenceType.WEEKLY:
         if not rule.weekdays:
-            return reference + timedelta(weeks=rule.interval)
+            return reference + relativedelta(weeks=rule.interval)
         
+        # We need to find the next valid weekday according to the rule
         sorted_weekdays = sorted(rule.weekdays)
         current_weekday = reference.weekday()
+
+        # Look for the next weekday in the current week
         for wd in sorted_weekdays:
             if wd > current_weekday:
-                return reference + timedelta(days=wd - current_weekday)
-        # Next week first weekday
-        days_to_next = 7 - current_weekday + sorted_weekdays[0]
-        return reference + timedelta(days=days_to_next + (rule.interval - 1) * 7)
+                return reference + relativedelta(days=wd - current_weekday)
+
+        # If no more weekdays this week, move to the next interval week's first weekday
+        days_to_sunday = 6 - current_weekday
+        return reference + relativedelta(days=days_to_sunday + 1) + relativedelta(weeks=rule.interval - 1, weekday=sorted_weekdays[0])
 
     if rule.recurrence_type == RecurrenceType.MONTHLY:
-        # Increment month keeping day within month bounds
-        month = reference.month + rule.interval
-        year = reference.year + (month - 1) // 12
-        month = (month - 1) % 12 + 1
-        day = min(reference.day, 28)  # safe day
-        return reference.replace(year=year, month=month, day=day)
+        # If month_days are specified, use the first one (simplified logic for now)
+        target_day = rule.month_days[0] if rule.month_days else rule.start_date.day
+
+        next_date = reference + relativedelta(months=rule.interval, day=target_day)
+        # relativedelta(day=target_day) handles month-end (e.g., Jan 31 -> Feb 28) correctly
+        return next_date
+
+    if rule.recurrence_type == RecurrenceType.YEARLY:
+        return reference + relativedelta(years=rule.interval)
 
     # Fallback – treat as daily
-    return reference + timedelta(days=1)
+    return reference + relativedelta(days=1)
 
 async def spawn_tasks_from_rule(rule: RecurrenceRule):
     """Create individual tasks from a recurring rule."""
@@ -109,12 +116,21 @@ async def spawn_tasks_from_rule(rule: RecurrenceRule):
     await rule.save()
 
 async def process_recurrence() -> None:
-    """Background loop to check and spawn recurring tasks."""
+    """Background loop to check and spawn recurring tasks with a safety catch-up limit."""
     now = datetime.now(timezone.utc)
+
+    # Process only rules due for generation
     pending_rules = await RecurrenceRule.find(
         RecurrenceRule.is_active == True,
         RecurrenceRule.next_run <= now,
     ).to_list()
     
     for rule in pending_rules:
-        await spawn_tasks_from_rule(rule)
+        # Safety: If next_run is extremely far in the past (e.g., server was down for a month),
+        # we don't want to spawn 1000 tasks. Limit catch-up to max 5 occurrences per rule per cycle.
+        spawn_count = 0
+        while rule.is_active and rule.next_run <= now and spawn_count < 5:
+            await spawn_tasks_from_rule(rule)
+            spawn_count += 1
+            # Refresh rule state from DB as spawn_tasks_from_rule updates it
+            rule = await RecurrenceRule.get(rule.id)
