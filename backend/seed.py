@@ -32,7 +32,6 @@ async def seed_admin():
         name=admin_data["name"],
         email=admin_data["email"],
         password_hash=hash_password(admin_data["password"]),
-        raw_password=admin_data["password"],
         role=admin_data["role"],
     )
     await user.insert()

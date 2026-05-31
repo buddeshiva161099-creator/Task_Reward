@@ -57,7 +57,6 @@ class EmployeeResponse(BaseModel):
     reward_points: float
     is_active: bool
     created_at: str
-    raw_password: Optional[str] = None
     mobile: Optional[str] = None
     alternate_mobile: Optional[str] = None
     reporting_manager_id: Optional[str] = None
@@ -86,7 +85,6 @@ class EmployeeResponse(BaseModel):
             is_active=user.is_active,
             created_at=to_utc_iso(user.created_at),
 
-            raw_password=user.raw_password,
             mobile=user.mobile,
             alternate_mobile=user.alternate_mobile,
             reporting_manager_id=str(user.reporting_manager_id) if user.reporting_manager_id else None,

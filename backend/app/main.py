@@ -18,6 +18,18 @@ import asyncio
 from app.services import recurrence_service
 from app.middleware import exception_handler_middleware
 
+
+def validate_runtime_security_settings():
+    """Fail fast on deployment settings that would weaken production security."""
+    if not settings.is_production:
+        return
+    if settings.uses_insecure_jwt_secret:
+        raise RuntimeError("JWT_SECRET must be changed before running in production.")
+    if "*" in settings.cors_origins_list:
+        raise RuntimeError("CORS_ORIGINS cannot include '*' when ENVIRONMENT=production.")
+    if settings.ALLOW_PUBLIC_REGISTRATION:
+        raise RuntimeError("ALLOW_PUBLIC_REGISTRATION must be disabled in production.")
+
 async def auto_checkout_stale_sessions():
     """Auto-close attendance sessions that are still open past work hours."""
     from app.models.attendance import Attendance, ist_now
@@ -81,6 +93,7 @@ async def run_periodic_tasks():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan - initialize DB and background tasks."""
+    validate_runtime_security_settings()
     await init_db()
     bg_task = asyncio.create_task(run_periodic_tasks())
     yield

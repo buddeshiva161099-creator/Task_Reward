@@ -4,6 +4,8 @@ Application configuration loaded from environment variables.
 from pydantic_settings import BaseSettings
 from typing import List
 
+INSECURE_JWT_SECRETS = {"change-this-secret", "your-super-secret-jwt-key-change-this", ""}
+
 
 class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://127.0.0.1:27017"
@@ -12,10 +14,23 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
     CORS_ORIGINS: str = "*"
+    ENVIRONMENT: str = "development"
+    ALLOW_PUBLIC_REGISTRATION: bool = False
+    AUTO_SEED_DEFAULT_USERS: bool = False
+    ALLOW_IN_MEMORY_DB_FALLBACK: bool = False
+    MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024
 
     @property
     def cors_origins_list(self) -> List[str]:
-        return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT.lower() in {"prod", "production"}
+
+    @property
+    def uses_insecure_jwt_secret(self) -> bool:
+        return self.JWT_SECRET in INSECURE_JWT_SECRETS
 
     class Config:
         env_file = ".env"

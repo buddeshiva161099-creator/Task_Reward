@@ -7,6 +7,7 @@ from app.models.user import User, UserRole
 from app.auth.password import hash_password, verify_password
 from app.auth.jwt_handler import create_access_token
 from app.auth.dependencies import get_current_user
+from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -49,7 +50,24 @@ async def login(request: LoginRequest):
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 async def register(request: RegisterRequest):
-    """Register a new user (for initial admin setup)."""
+    """Register a new user when public registration is explicitly enabled.
+
+    Production deployments should provision accounts through the protected
+    employee-management APIs or the seed script. Keeping this endpoint closed by
+    default prevents unauthenticated privilege escalation.
+    """
+    if not settings.ALLOW_PUBLIC_REGISTRATION:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled. Contact an administrator for account creation.",
+        )
+
+    if request.role != UserRole.EMPLOYEE.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration can only create employee accounts.",
+        )
+
     existing = await User.find_one(User.email == request.email)
     if existing:
         raise HTTPException(
@@ -106,7 +124,7 @@ async def change_password(
         )
 
     current_user.password_hash = hash_password(request.new_password)
-    current_user.raw_password = request.new_password  # Update plain text for admin view if needed
+    current_user.raw_password = None
     await current_user.save()
 
     return {"message": "Password updated successfully"}

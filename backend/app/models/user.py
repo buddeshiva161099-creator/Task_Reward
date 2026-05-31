@@ -21,7 +21,7 @@ class User(Document):
     name: str = Field(..., min_length=1, max_length=100)
     email: EmailStr = Field(..., unique=True)
     password_hash: str
-    raw_password: Optional[str] = None  # Store plain text password for admin view
+    raw_password: Optional[str] = None  # Deprecated: retained only to read legacy documents; never populate.
     role: UserRole = UserRole.EMPLOYEE
     company_id: Optional[PydanticObjectId] = None
     department_id: Optional[PydanticObjectId] = None

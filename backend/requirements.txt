@@ -3,7 +3,7 @@ uvicorn[standard]==0.30.6
 motor>=3.6.0
 beanie>=2.0.0
 pydantic[email]==2.10.1
-pydantic-settings==2.0.01
+pydantic-settings==2.0.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.0.1
@@ -12,3 +12,5 @@ pandas>=2.2.3
 openpyxl==3.1.5
 python-dotenv==1.0.1
 gunicorn>=23.0.0
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

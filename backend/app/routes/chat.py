@@ -1,5 +1,3 @@
-import os
-import shutil
 from datetime import datetime
 from app.utils.ist_time import to_utc_iso
 from typing import List, Optional
@@ -14,6 +12,7 @@ from app.models.task import Task
 from app.models.activity_log import ActivityLog
 from app.models.notification import Notification
 from app.auth.dependencies import get_current_user
+from app.utils.uploads import CHAT_ALLOWED_CONTENT_TYPES, save_upload_file
 
 router = APIRouter(prefix="/chat", tags=["Chat Collaboration"])
 
@@ -48,6 +47,26 @@ class ReadMessageRequest(BaseModel):
 # Helper to check if a user can manage groups / send tips
 def is_manager(user: User) -> bool:
     return user.role != UserRole.EMPLOYEE
+
+
+async def ensure_group_member(group_id: PydanticObjectId, user: User) -> ChatGroup:
+    """Load a group and ensure the current user is a member."""
+    group = await ChatGroup.get(group_id)
+    if not group:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+    if user.id not in group.members:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not a member of this group.")
+    return group
+
+
+async def ensure_message_participant(message: ChatMessage, user: User) -> None:
+    """Ensure a user participates in a direct or group message before mutating it."""
+    if message.group_id:
+        await ensure_group_member(message.group_id, user)
+        return
+    if message.sender_id == user.id or message.recipient_id == user.id:
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not a participant in this conversation.")
 
 # --- API Endpoints ---
 
@@ -271,7 +290,9 @@ async def get_chat_history(
 
     query = {}
     if group_id:
-        query["group_id"] = PydanticObjectId(group_id)
+        group_obj_id = PydanticObjectId(group_id)
+        await ensure_group_member(group_obj_id, current_user)
+        query["group_id"] = group_obj_id
     else:
         # Direct 1-on-1 chat query: sender=current & recipient=other OR vice-versa
         other_uid = PydanticObjectId(recipient_id)
@@ -436,21 +457,16 @@ async def upload_chat_attachment(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user)
 ):
-    """Upload file attachments for sharing inside conversations."""
-    os.makedirs("uploads/chat", exist_ok=True)
-    
-    timestamp = int(datetime.utcnow().timestamp())
-    filename = f"{timestamp}_{file.filename.replace(' ', '_')}"
-    filepath = os.path.join("uploads", "chat", filename)
-
-    with open(filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Return local access URL
-    public_url = f"/uploads/chat/{filename}"
+    """Upload validated file attachments for sharing inside conversations."""
+    filename, size = await save_upload_file(
+        file=file,
+        upload_dir="uploads/chat",
+        allowed_content_types=CHAT_ALLOWED_CONTENT_TYPES,
+    )
     return {
-        "url": public_url,
-        "name": file.filename
+        "url": f"/uploads/chat/{filename}",
+        "name": file.filename,
+        "size": size,
     }
 
 @router.post("/presence/heartbeat")
@@ -537,6 +553,8 @@ async def delete_chat_message(
     msg = await ChatMessage.get(PydanticObjectId(message_id))
     if not msg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
+
+    await ensure_message_participant(msg, current_user)
 
     if delete_type == "me":
         # Add user to hidden list

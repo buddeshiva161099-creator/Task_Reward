@@ -72,7 +72,6 @@ async def seed_simulation_data(admin: User = Depends(require_admin)):
             name=ud["name"],
             email=ud["email"],
             password_hash=pw_hash,
-            raw_password="password123",
             role=ud["role"],
             company_id=company.id,
             reward_points=ud["points"],

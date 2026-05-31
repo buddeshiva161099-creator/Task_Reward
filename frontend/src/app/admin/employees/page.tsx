@@ -46,7 +46,6 @@ export default function EmployeesPage() {
   const [showRawPassword, setShowRawPassword] = useState(false);
   const [changePasswordChecked, setChangePasswordChecked] = useState(false);
   const [newPasswordVal, setNewPasswordVal] = useState('');
-  const [copiedEditPassword, setCopiedEditPassword] = useState(false);
 
   // Salary structure states inside Edit Modal
   const [structBasic, setStructBasic] = useState(0);
@@ -1007,7 +1006,7 @@ HR Operations & Management`;
                           Auto Generate
                         </button>
                       </div>
-                      <p className="text-[9px] text-indigo-500 font-semibold mt-1 ml-1">The system will record this administrative temporary credential for onboarding handover.</p>
+                      <p className="text-[9px] text-indigo-500 font-semibold mt-1 ml-1">Share this temporary credential securely during onboarding; it will not be stored in plain text.</p>
                     </div>
 
                     <div className="flex justify-between pt-6 border-t border-slate-100">
@@ -1327,43 +1326,9 @@ HR Operations & Management`;
                     </div>
                   </div>
 
-                  {/* Display Current Raw Password (with eye toggle and clipboard actions) */}
-                  {editEmployee.raw_password ? (
-                    <div>
-                      <label className="block text-[9px] font-bold uppercase text-slate-400 tracking-widest mb-1.5">Registered Handover Password</label>
-                      <div className="flex gap-2">
-                        <div className="relative flex-1">
-                          <input
-                            type={showRawPassword ? 'text' : 'password'}
-                            value={editEmployee.raw_password}
-                            readOnly
-                            className="input h-10 rounded-xl border-slate-200 bg-slate-100 font-mono text-xs pr-10 cursor-default select-all"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowRawPassword(!showRawPassword)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600"
-                          >
-                            {showRawPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                          </button>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            navigator.clipboard.writeText(editEmployee.raw_password || '');
-                            setCopiedEditPassword(true);
-                            setTimeout(() => setCopiedEditPassword(false), 2000);
-                          }}
-                          className="btn btn-secondary h-10 px-3 rounded-xl border-slate-200 flex items-center gap-1.5 text-xs font-semibold bg-white"
-                        >
-                          {copiedEditPassword ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                          <span>{copiedEditPassword ? 'Copied' : 'Copy'}</span>
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[10px] text-amber-600 italic">No temporary plain-text security password registered in database for this account.</p>
-                  )}
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-[10px] text-emerald-700">
+                    Existing passwords are never displayed or stored in plain text. Use the reset option below to issue a new temporary password when access needs to be recovered.
+                  </div>
 
                   {/* Checkbox for Changing Password */}
                   <label className="flex items-center gap-2.5 mt-3 select-none cursor-pointer">

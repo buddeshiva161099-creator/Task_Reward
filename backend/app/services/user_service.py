@@ -45,7 +45,6 @@ async def create_employee(
         name=name,
         email=email,
         password_hash=hash_password(password),
-        raw_password=password,
         role=role,
         mobile=mobile,
         alternate_mobile=alternate_mobile,
@@ -103,7 +102,7 @@ async def update_employee(employee_id: str, **kwargs) -> Optional[User]:
     if "password" in update_data:
         password = update_data.pop("password")
         update_data["password_hash"] = hash_password(password)
-        update_data["raw_password"] = password
+        update_data["raw_password"] = None
 
     if update_data:
         update_data["updated_at"] = datetime.utcnow()

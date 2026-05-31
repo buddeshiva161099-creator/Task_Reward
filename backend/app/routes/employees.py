@@ -1,7 +1,6 @@
 """
 Employee management routes - admin only CRUD operations.
 """
-import os
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File
 from app.schemas.user import CreateEmployeeRequest, UpdateEmployeeRequest, EmployeeResponse
 from app.services import user_service, dashboard_service
@@ -9,6 +8,7 @@ from app.auth.dependencies import require_hr_team, require_any_hr_manager, requi
 from app.models.user import User, UserRole
 from beanie import PydanticObjectId
 from typing import List
+from app.utils.uploads import IDENTITY_ALLOWED_CONTENT_TYPES, save_upload_file
 
 NON_ADMIN_ROLES = [
     UserRole.HR_MANAGER,
@@ -217,21 +217,15 @@ async def upload_identity_document(
     file: UploadFile = File(...),
     user: User = Depends(require_management_team),
 ):
-    """Upload an identity document file for an employee."""
-    upload_dir = os.path.join("uploads", "identity_docs")
-    os.makedirs(upload_dir, exist_ok=True)
+    """Upload a validated identity document file for an employee."""
+    filename, size = await save_upload_file(
+        file=file,
+        upload_dir="uploads/identity_docs",
+        allowed_content_types=IDENTITY_ALLOWED_CONTENT_TYPES,
+    )
 
-    import time
-    timestamp = int(time.time() * 1000)
-    safe_name = file.filename.replace(" ", "_")
-    filename = f"{timestamp}_{safe_name}"
-    filepath = os.path.join(upload_dir, filename)
+    return {"url": f"/uploads/identity_docs/{filename}", "filename": filename, "size": size}
 
-    contents = await file.read()
-    with open(filepath, "wb") as f:
-        f.write(contents)
-
-    return {"url": f"/uploads/identity_docs/{filename}", "filename": filename}
 
 
 # ────────────────────────────────────────────────────────

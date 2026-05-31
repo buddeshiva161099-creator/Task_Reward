@@ -36,7 +36,6 @@ async def auto_seed_if_needed():
             name="System Admin",
             email="admin@company.com",
             password_hash=hash_password("Admin@123"),
-            raw_password="Admin@123",
             role=UserRole.ADMIN,
         )
         await admin_user.insert()
@@ -45,7 +44,6 @@ async def auto_seed_if_needed():
             name="Nishitha",
             email="nishitha@vision.com",
             password_hash=hash_password("123456"),
-            raw_password="123456",
             role=UserRole.EMPLOYEE,
         )
         await employee_user.insert()
@@ -74,10 +72,13 @@ async def init_db():
             ]
         )
         print(f"[OK] Connected to MongoDB: {settings.DATABASE_NAME}")
-        await auto_seed_if_needed()
+        if settings.AUTO_SEED_DEFAULT_USERS:
+            await auto_seed_if_needed()
     except Exception as e:
         print(f"[WARNING] Failed to connect to MongoDB: {str(e)}")
-        print("[INFO] Falling back to in-memory mongomock database so you can use the application immediately!")
+        if not settings.ALLOW_IN_MEMORY_DB_FALLBACK:
+            raise
+        print("[INFO] Falling back to in-memory mongomock database because ALLOW_IN_MEMORY_DB_FALLBACK is enabled.")
         try:
             import mongomock
             # Monkeypatch mongomock to support Beanie's call to list_collection_names with extra kwargs
@@ -101,8 +102,8 @@ async def init_db():
             )
             print(f"[OK] Connected to mock in-memory MongoDB: {settings.DATABASE_NAME}")
             
-            # Seed the database so they can log in
-            await auto_seed_if_needed()
+            if settings.AUTO_SEED_DEFAULT_USERS:
+                await auto_seed_if_needed()
         except Exception as mock_e:
             print(f"[ERROR] Failed to connect to mock MongoDB: {str(mock_e)}")
             raise e

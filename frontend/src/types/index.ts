@@ -112,7 +112,6 @@ export interface Employee {
   reward_points: number;
   is_active: boolean;
   created_at: string;
-  raw_password?: string;
   mobile?: string;
   alternate_mobile?: string;
   reporting_manager_id?: string;
