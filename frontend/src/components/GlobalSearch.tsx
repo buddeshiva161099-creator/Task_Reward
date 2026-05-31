@@ -23,6 +23,7 @@ export default function GlobalSearch() {
     tasks: SearchResult[];
   }>({ employees: [], companies: [], tasks: [] });
   const [loading, setLoading] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -31,6 +32,7 @@ export default function GlobalSearch() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
+        setSelectedIndex(0);
         setIsOpen(true);
       }
       if (e.key === 'Escape') {
@@ -44,9 +46,6 @@ export default function GlobalSearch() {
   useEffect(() => {
     if (isOpen) {
       inputRef.current?.focus();
-    } else {
-      setQuery('');
-      setResults({ employees: [], companies: [], tasks: [] });
     }
   }, [isOpen]);
 
@@ -57,6 +56,7 @@ export default function GlobalSearch() {
         try {
           const res = await api.get(`/search?q=${query}`);
           setResults(res.data);
+          setSelectedIndex(0);
         } catch (err) {
           console.error('Search failed:', err);
         } finally {
@@ -69,6 +69,8 @@ export default function GlobalSearch() {
 
     return () => clearTimeout(timer);
   }, [query]);
+
+  const flatResults = [...results.employees, ...results.companies, ...results.tasks];
 
   const handleNavigate = (type: string, id: string) => {
     setIsOpen(false);
@@ -91,7 +93,12 @@ export default function GlobalSearch() {
     <>
       {/* Search Trigger (Input-like button) */}
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          setQuery('');
+          setResults({ employees: [], companies: [], tasks: [] });
+          setSelectedIndex(0);
+          setIsOpen(true);
+        }}
         className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-100/50 hover:bg-slate-100 border border-slate-200 transition-all text-muted-foreground flex-1 max-w-[180px] sm:max-w-xs"
       >
         <Search className="w-4 h-4" />
@@ -105,7 +112,12 @@ export default function GlobalSearch() {
       {/* Search Modal */}
       {isOpen && (
         <div className="fixed inset-0 z-[100] flex items-start justify-center pt-[15vh] px-4">
-          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setIsOpen(false)} />
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => {
+            setIsOpen(false);
+            setQuery('');
+            setResults({ employees: [], companies: [], tasks: [] });
+            setSelectedIndex(0);
+          }} />
           
           <div className="relative w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-200">
             {/* Input Section */}
@@ -116,6 +128,17 @@ export default function GlobalSearch() {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault();
+                    setSelectedIndex((prev) => (prev + 1) % flatResults.length);
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    setSelectedIndex((prev) => (prev - 1 + flatResults.length) % flatResults.length);
+                  } else if (e.key === 'Enter' && flatResults[selectedIndex]) {
+                    handleNavigate(flatResults[selectedIndex].type, flatResults[selectedIndex].id);
+                  }
+                }}
                 placeholder="Search for employees, tasks, or companies..."
                 className="flex-1 bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400"
               />
@@ -150,11 +173,11 @@ export default function GlobalSearch() {
                     <div>
                       <h3 className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Employees</h3>
                       <div className="mt-1 space-y-0.5">
-                        {results.employees.map((emp) => (
+                        {results.employees.map((emp, i) => (
                           <button
                             key={emp.id}
                             onClick={() => handleNavigate('employee', emp.id)}
-                            className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-indigo-50 transition-colors text-left group"
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left group ${selectedIndex === i ? 'bg-indigo-50 ring-2 ring-indigo-200' : 'hover:bg-indigo-50'}`}
                           >
                             <div className="w-9 h-9 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600">
                               <User className="w-4 h-4" />
@@ -174,11 +197,11 @@ export default function GlobalSearch() {
                     <div>
                       <h3 className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Companies</h3>
                       <div className="mt-1 space-y-0.5">
-                        {results.companies.map((comp) => (
+                        {results.companies.map((comp, i) => (
                           <button
                             key={comp.id}
                             onClick={() => handleNavigate('company', comp.id)}
-                            className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-emerald-50 transition-colors text-left group"
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left group ${selectedIndex === results.employees.length + i ? 'bg-emerald-50 ring-2 ring-emerald-200' : 'hover:bg-emerald-50'}`}
                           >
                             <div className="w-9 h-9 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-600">
                               <Building2 className="w-4 h-4" />
@@ -198,11 +221,11 @@ export default function GlobalSearch() {
                     <div>
                       <h3 className="px-3 py-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Work Items</h3>
                       <div className="mt-1 space-y-0.5">
-                        {results.tasks.map((task) => (
+                        {results.tasks.map((task, i) => (
                           <button
                             key={task.id}
                             onClick={() => handleNavigate('task', task.id)}
-                            className="w-full flex items-center gap-3 p-2.5 rounded-xl hover:bg-amber-50 transition-colors text-left group"
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left group ${selectedIndex === results.employees.length + results.companies.length + i ? 'bg-amber-50 ring-2 ring-amber-200' : 'hover:bg-amber-50'}`}
                           >
                             <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-600">
                               <ClipboardList className="w-4 h-4" />
