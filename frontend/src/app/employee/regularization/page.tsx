@@ -50,10 +50,13 @@ export default function EmployeeRegularizationPage() {
 
     try {
       setSubmitting(true);
+      const reqCheckIn = checkIn ? new Date(`${checkIn}+05:30`).toISOString() : null;
+      const reqCheckOut = checkOut ? new Date(`${checkOut}+05:30`).toISOString() : null;
+
       await api.post('/regularization/apply', {
         attendance_id: attendanceId || null,
-        requested_check_in: checkIn || null,
-        requested_check_out: checkOut || null,
+        requested_check_in: reqCheckIn,
+        requested_check_out: reqCheckOut,
         reason,
       });
       setSuccessMsg('Regularization request successfully queued for HR review!');

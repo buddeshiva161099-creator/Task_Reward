@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
+import { formatDate } from '@/lib/utils';
 import { 
   Calendar, Check, X, ShieldAlert, Sparkles, ChevronRight, 
   Search, CheckCircle2, AlertCircle, CalendarDays, UserCheck, UserX,
@@ -367,9 +368,9 @@ export default function LeavesManagementPage() {
 
                       <div className="text-xs font-bold text-slate-400 flex items-center gap-2 flex-wrap uppercase tracking-wider">
                         <CalendarDays className="w-4 h-4 text-slate-350 shrink-0" />
-                        <span>{startDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        <span>{formatDate(req.start_date)}</span>
                         <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
-                        <span>{endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                        <span>{formatDate(req.end_date)}</span>
                         <span className="ml-2 px-2 py-0.5 bg-slate-100 text-slate-700 rounded font-black text-[10px]">
                           {durationDays} {durationDays === 1 ? 'day' : 'days'}
                         </span>
@@ -604,7 +605,7 @@ export default function LeavesManagementPage() {
                             {r.leave_type.replace('_', ' ')}
                           </td>
                           <td className="py-4 px-4 text-slate-500 text-xs">
-                            {new Date(r.start_date).toLocaleDateString()} to {new Date(r.end_date).toLocaleDateString()}
+                            {formatDate(r.start_date)} to {formatDate(r.end_date)}
                           </td>
                           <td className="py-4 px-4">
                             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold capitalize ${

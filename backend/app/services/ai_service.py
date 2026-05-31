@@ -13,6 +13,7 @@ from beanie.operators import In
 from app.models.user import User, UserRole
 from app.models.task import Task, TaskStatus, TaskPriority
 from app.models.attendance import Attendance, ist_now
+from app.utils.ist_time import to_utc_iso
 from app.models.payroll import Payroll
 from app.models.ai_insight import CachedAIInsight
 from app.routes.employees import get_visible_employee_ids
@@ -176,7 +177,7 @@ async def run_task_analysis(user_scope: Optional[List[PydanticObjectId]] = None)
             "description": task.work_description,
             "assigned_to": str(task.assigned_to),
             "assigned_to_name": task.assigned_to_name,
-            "deadline": task.deadline.isoformat() + "Z",
+            "deadline": to_utc_iso(task.deadline),
             "priority": task.priority.value,
             "status": task.status.value,
             "risk_score": risk_score,

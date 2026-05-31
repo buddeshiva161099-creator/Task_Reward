@@ -4,6 +4,7 @@ from app.models.regularization import AttendanceRegularization, RegularizationSt
 from app.models.attendance import Attendance
 from app.models.activity_log import ActivityLog
 from app.models.notification import Notification
+from app.utils.ist_time import to_utc_iso
 from app.auth.dependencies import get_current_user, require_hr_team, require_any_hr_manager, require_management_team, require_admin
 from pydantic import BaseModel
 from datetime import datetime
@@ -141,12 +142,12 @@ async def get_my_regularizations(current_user: User = Depends(get_current_user))
         {
             "id": str(r.id),
             "attendance_id": str(r.attendance_id),
-            "requested_check_in": r.requested_check_in.isoformat() if r.requested_check_in else None,
-            "requested_check_out": r.requested_check_out.isoformat() if r.requested_check_out else None,
+            "requested_check_in": to_utc_iso(r.requested_check_in) if r.requested_check_in else None,
+            "requested_check_out": to_utc_iso(r.requested_check_out) if r.requested_check_out else None,
             "reason": r.reason,
             "status": r.status.value,
             "comments": r.comments,
-            "created_at": r.created_at.isoformat(),
+            "created_at": to_utc_iso(r.created_at),
             "verified_by_name": r.verified_by_name,
             "approved_by_name": r.approved_by_name,
         }
@@ -176,12 +177,12 @@ async def get_pending_regularizations(user: User = Depends(require_management_te
             "user_id": str(r.user_id),
             "user_name": r.user_name,
             "attendance_id": str(r.attendance_id),
-            "requested_check_in": r.requested_check_in.isoformat() if r.requested_check_in else None,
-            "requested_check_out": r.requested_check_out.isoformat() if r.requested_check_out else None,
+            "requested_check_in": to_utc_iso(r.requested_check_in) if r.requested_check_in else None,
+            "requested_check_out": to_utc_iso(r.requested_check_out) if r.requested_check_out else None,
             "reason": r.reason,
             "status": r.status.value,
             "comments": r.comments,
-            "created_at": r.created_at.isoformat(),
+            "created_at": to_utc_iso(r.created_at),
             "verified_by_name": r.verified_by_name,
             "approved_by_name": r.approved_by_name,
         }
@@ -210,12 +211,12 @@ async def get_all_regularizations(user: User = Depends(require_management_team))
             "user_id": str(r.user_id),
             "user_name": r.user_name,
             "attendance_id": str(r.attendance_id),
-            "requested_check_in": r.requested_check_in.isoformat() if r.requested_check_in else None,
-            "requested_check_out": r.requested_check_out.isoformat() if r.requested_check_out else None,
+            "requested_check_in": to_utc_iso(r.requested_check_in) if r.requested_check_in else None,
+            "requested_check_out": to_utc_iso(r.requested_check_out) if r.requested_check_out else None,
             "reason": r.reason,
             "status": r.status.value,
             "comments": r.comments,
-            "created_at": r.created_at.isoformat(),
+            "created_at": to_utc_iso(r.created_at),
             "verified_by_name": r.verified_by_name,
             "approved_by_name": r.approved_by_name,
         }

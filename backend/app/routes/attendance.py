@@ -334,3 +334,230 @@ async def get_geofence_status(
         "radius_meters": company.geofence_radius_meters,
         "min_session_minutes": company.min_session_minutes,
     }
+
+
+@router.get("/my-calendar-summary")
+async def get_my_calendar_summary(current_user: User = Depends(get_current_user)):
+    """Returns enriched calendar data for the employee's last 90 days attendance:
+    - attendance logs (raw check-in/out records)
+    - approved regularization dates (YYYY-MM-DD strings, IST)
+    - approved leave date ranges with details
+    - holiday dates (global + company-specific)
+    - company work_days config and work_start_time
+    """
+    from app.models.regularization import AttendanceRegularization, RegularizationStatus
+    from app.models.leave import Leave, LeaveStatus
+    from app.models.holiday import Holiday
+    from beanie.operators import Or
+
+    # Company config
+    company = await Company.get(current_user.company_id) if current_user.company_id else None
+    if not company:
+        company = await Company.find_one(Company.is_active == True)
+
+    work_days = company.work_days if company else ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    work_start_time = company.work_start_time if company else "09:00"
+
+    # Last 90 days window
+    now_ist = ist_now()
+    today_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    history_start = today_start - timedelta(days=89)
+
+    # Raw attendance logs
+    attendance_logs = await Attendance.find(
+        Attendance.user_id == current_user.id,
+        Attendance.check_in >= history_start
+    ).sort(-Attendance.check_in).to_list()
+    logs_data = [_build_response(log, current_user) for log in attendance_logs]
+
+    # Approved regularizations
+    all_approved_regs = await AttendanceRegularization.find(
+        AttendanceRegularization.user_id == current_user.id,
+        AttendanceRegularization.status == RegularizationStatus.APPROVED
+    ).to_list()
+
+    attendance_id_map = {str(log.id): log for log in attendance_logs}
+    regularized_dates: list[str] = []
+    regularizations_detail: list[dict] = []
+    for reg in all_approved_regs:
+        attn = attendance_id_map.get(str(reg.attendance_id))
+        if attn:
+            date_ist = attn.check_in.astimezone(IST).date()
+            date_str = date_ist.isoformat()
+            if date_str not in regularized_dates:
+                regularized_dates.append(date_str)
+            regularizations_detail.append({
+                "id": str(reg.id),
+                "date": date_str,
+                "requested_check_in": reg.requested_check_in.astimezone(IST).isoformat() if reg.requested_check_in else None,
+                "requested_check_out": reg.requested_check_out.astimezone(IST).isoformat() if reg.requested_check_out else None,
+                "reason": reg.reason,
+                "comments": reg.comments,
+            })
+
+    # Approved leaves
+    approved_leaves = await Leave.find(
+        Leave.user_id == current_user.id,
+        Leave.status == LeaveStatus.APPROVED
+    ).to_list()
+
+    leave_dates: list[dict] = []
+    for leave in approved_leaves:
+        leave_dates.append({
+            "id": str(leave.id),
+            "start": leave.start_date.astimezone(IST).date().isoformat(),
+            "end": leave.end_date.astimezone(IST).date().isoformat(),
+            "leave_type": leave.leave_type.value if hasattr(leave.leave_type, "value") else str(leave.leave_type),
+            "reason": leave.reason,
+            "comments": leave.comments,
+        })
+
+    # Holidays (global + company-specific) within the 90-day window
+    holidays_list = await Holiday.find(
+        Holiday.date >= history_start,
+        Or(Holiday.company_id == current_user.company_id, Holiday.company_id == None)
+    ).to_list()
+
+    holiday_dates: list[dict] = [
+        {
+            "date": h.date.astimezone(IST).date().isoformat(),
+            "name": h.name,
+        }
+        for h in holidays_list
+    ]
+
+    return {
+        "attendance_logs": logs_data,
+        "regularized_dates": regularized_dates,
+        "regularizations_detail": regularizations_detail,
+        "leave_dates": leave_dates,
+        "holiday_dates": holiday_dates,
+        "work_days": work_days,
+        "work_start_time": work_start_time
+    }
+
+
+@router.get("/calendar-summary/{employee_id}")
+async def get_employee_calendar_summary(
+    employee_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Returns enriched calendar data for a specific employee's last 90 days attendance:
+    - attendance logs (raw check-in/out records)
+    - approved regularization dates (YYYY-MM-DD strings, IST)
+    - approved leave date ranges with details
+    - holiday dates (global + company-specific)
+    - company work_days config and work_start_time
+    """
+    if current_user.role not in [
+        UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
+        UserRole.MANAGER, UserRole.ASSISTANT_MANAGER
+    ]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+
+    from app.routes.employees import get_visible_employee_ids
+    visible_ids = await get_visible_employee_ids(current_user)
+    
+    try:
+        target_id = PydanticObjectId(employee_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid employee ID format")
+
+    if visible_ids is not None and target_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="Unauthorized to view this employee's attendance")
+
+    employee = await User.get(target_id)
+    if not employee:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    from app.models.regularization import AttendanceRegularization, RegularizationStatus
+    from app.models.leave import Leave, LeaveStatus
+    from app.models.holiday import Holiday
+    from beanie.operators import Or
+
+    # Company config
+    company = await Company.get(employee.company_id) if employee.company_id else None
+    if not company:
+        company = await Company.find_one(Company.is_active == True)
+
+    work_days = company.work_days if company else ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    work_start_time = company.work_start_time if company else "09:00"
+
+    # Last 90 days window
+    now_ist = ist_now()
+    today_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    history_start = today_start - timedelta(days=89)
+
+    # Raw attendance logs
+    attendance_logs = await Attendance.find(
+        Attendance.user_id == employee.id,
+        Attendance.check_in >= history_start
+    ).sort(-Attendance.check_in).to_list()
+    logs_data = [_build_response(log, employee) for log in attendance_logs]
+
+    # Approved regularizations
+    all_approved_regs = await AttendanceRegularization.find(
+        AttendanceRegularization.user_id == employee.id,
+        AttendanceRegularization.status == RegularizationStatus.APPROVED
+    ).to_list()
+
+    attendance_id_map = {str(log.id): log for log in attendance_logs}
+    regularized_dates: list[str] = []
+    regularizations_detail: list[dict] = []
+    for reg in all_approved_regs:
+        attn = attendance_id_map.get(str(reg.attendance_id))
+        if attn:
+            date_ist = attn.check_in.astimezone(IST).date()
+            date_str = date_ist.isoformat()
+            if date_str not in regularized_dates:
+                regularized_dates.append(date_str)
+            regularizations_detail.append({
+                "id": str(reg.id),
+                "date": date_str,
+                "requested_check_in": reg.requested_check_in.astimezone(IST).isoformat() if reg.requested_check_in else None,
+                "requested_check_out": reg.requested_check_out.astimezone(IST).isoformat() if reg.requested_check_out else None,
+                "reason": reg.reason,
+                "comments": reg.comments,
+            })
+
+    # Approved leaves
+    approved_leaves = await Leave.find(
+        Leave.user_id == employee.id,
+        Leave.status == LeaveStatus.APPROVED
+    ).to_list()
+
+    leave_dates: list[dict] = []
+    for leave in approved_leaves:
+        leave_dates.append({
+            "id": str(leave.id),
+            "start": leave.start_date.astimezone(IST).date().isoformat(),
+            "end": leave.end_date.astimezone(IST).date().isoformat(),
+            "leave_type": leave.leave_type.value if hasattr(leave.leave_type, "value") else str(leave.leave_type),
+            "reason": leave.reason,
+            "comments": leave.comments,
+        })
+
+    # Holidays (global + company-specific) within the 90-day window
+    holidays_list = await Holiday.find(
+        Holiday.date >= history_start,
+        Or(Holiday.company_id == employee.company_id, Holiday.company_id == None)
+    ).to_list()
+
+    holiday_dates: list[dict] = [
+        {
+            "date": h.date.astimezone(IST).date().isoformat(),
+            "name": h.name,
+        }
+        for h in holidays_list
+    ]
+
+    return {
+        "attendance_logs": logs_data,
+        "regularized_dates": regularized_dates,
+        "regularizations_detail": regularizations_detail,
+        "leave_dates": leave_dates,
+        "holiday_dates": holiday_dates,
+        "work_days": work_days,
+        "work_start_time": work_start_time
+    }
+

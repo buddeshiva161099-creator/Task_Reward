@@ -107,7 +107,7 @@ async def test_calculate_corporate_payroll_with_regularization():
 
     payroll = await calculate_corporate_payroll(user, "2024-05")
 
-    assert payroll.present_days == 0
+    assert payroll.present_days == 1
     assert payroll.approved_regularization_days == 1
     assert payroll.payable_days == 1
 
@@ -164,3 +164,119 @@ async def test_payroll_recalculation_history():
     assert len(history) == 1
     assert history[0].version_number == 1
     assert history[0].payroll_snapshot["present_days"] == 0
+
+
+@pytest.mark.asyncio
+async def test_payroll_recalculation_locked():
+    company = Company(name="Test Corp")
+    await company.insert()
+    user = User(email="test5@example.com", name="Test User 5", role=UserRole.EMPLOYEE, company_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
+    await user.insert()
+
+    struct = SalaryStructure(user_id=user.id, basic=12000)
+    await struct.insert()
+
+    payroll = await calculate_corporate_payroll(user, "2024-05")
+    assert payroll.version_number == 1
+    
+    # Lock payroll
+    payroll.status = PayrollStatus.LOCKED
+    await payroll.save()
+
+    # Recalculate without force - should return existing without change
+    result_no_force = await calculate_corporate_payroll(user, "2024-05")
+    assert result_no_force.version_number == 1
+
+    # Add attendance log
+    attn = Attendance(
+        user_id=user.id, company_id=company.id, check_in=datetime(2024, 5, 10, 9, 0, tzinfo=timezone.utc), status="present"
+    )
+    await attn.insert()
+
+    # Recalculate with force=True - should succeed and increment version, snapshotting the older one
+    result_forced = await calculate_corporate_payroll(user, "2024-05", force=True)
+    assert result_forced.version_number == 2
+    assert result_forced.present_days == 1
+    assert result_forced.status == PayrollStatus.LOCKED
+
+    history = await PayrollHistory.find(PayrollHistory.payroll_id == result_forced.id).to_list()
+    assert len(history) == 1
+    assert history[0].version_number == 1
+    assert history[0].payroll_snapshot["present_days"] == 0
+
+
+@pytest.mark.asyncio
+async def test_payroll_active_window_full_month():
+    company = Company(name="Test Corp")
+    await company.insert()
+    
+    # Hired mid-month on May 15th, 2024
+    user = User(
+        email="midmonth@example.com",
+        name="Mid Month User",
+        role=UserRole.EMPLOYEE,
+        company_id=company.id,
+        hiring_date="2024-05-15",
+        password_hash="mock_hash"
+    )
+    await user.insert()
+
+    struct = SalaryStructure(
+        user_id=user.id,
+        basic=10000,
+        hra=5000,
+        special_allowance=5000
+    )
+    await struct.insert()
+
+    payroll = await calculate_corporate_payroll(user, "2024-05")
+
+    # The active window should span the entire month (1st to 31st)
+    # The total working days in the month of May 2024 is 23 working days (excluding weekends)
+    assert payroll.total_working_days == 23
+    assert payroll.base_salary == 20000.0
+    # Because there is no active window proration, the basic salary, hra, special allowance are NOT prorated:
+    assert payroll.basic == 10000.0
+    assert payroll.hra == 5000.0
+    assert payroll.special_allowance == 5000.0
+
+
+@pytest.mark.asyncio
+async def test_payroll_custom_company_work_days():
+    # 4-day workweek (Monday to Thursday). Friday, Saturday, Sunday are weekoffs (weekends).
+    company = Company(
+        name="Custom Workweek Corp",
+        work_days=["Monday", "Tuesday", "Wednesday", "Thursday"]
+    )
+    await company.insert()
+
+    user = User(
+        email="custom@example.com",
+        name="Custom User",
+        role=UserRole.EMPLOYEE,
+        company_id=company.id,
+        hiring_date="2024-01-01",
+        password_hash="mock_hash"
+    )
+    await user.insert()
+
+    struct = SalaryStructure(
+        user_id=user.id,
+        basic=10000,
+        hra=5000,
+        special_allowance=5000
+    )
+    await struct.insert()
+
+    payroll = await calculate_corporate_payroll(user, "2024-05")
+
+    # In May 2024 (31 days):
+    # Total days: 31
+    # Mondays: 4 (May 6, 13, 20, 27)
+    # Tuesdays: 4 (May 7, 14, 21, 28)
+    # Wednesdays: 5 (May 1, 8, 15, 22, 29)
+    # Thursdays: 5 (May 2, 9, 16, 23, 30)
+    # Total workdays = 4 + 4 + 5 + 5 = 18 working days.
+    # Total weekoff days (Fridays, Saturdays, Sundays) = 31 - 18 = 13 weekoffs.
+    assert payroll.total_working_days == 18
+    assert payroll.holidays_weekends == 13

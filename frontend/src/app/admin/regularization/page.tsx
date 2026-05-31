@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
+import { formatDateTime } from '@/lib/utils';
 import { 
   Clock, Check, X, ShieldAlert, Sparkles, ChevronRight, 
   Search, CheckCircle2, AlertCircle, UserCheck, UserX,
@@ -158,10 +159,13 @@ export default function RegularizationManagementPage() {
 
     try {
       setSubmitting(true);
+      const reqCheckIn = checkIn ? new Date(`${checkIn}+05:30`).toISOString() : null;
+      const reqCheckOut = checkOut ? new Date(`${checkOut}+05:30`).toISOString() : null;
+
       await api.post('/regularization/apply', {
         attendance_id: attendanceId || null,
-        requested_check_in: checkIn || null,
-        requested_check_out: checkOut || null,
+        requested_check_in: reqCheckIn,
+        requested_check_out: reqCheckOut,
         reason,
       });
       setSuccessMsg('Regularization request successfully queued for HR review!');
@@ -364,13 +368,13 @@ export default function RegularizationManagementPage() {
                         <div>
                           <span className="text-slate-400 block text-xs uppercase font-bold tracking-wider mb-1">Requested Check-In</span>
                           <span className="font-semibold text-slate-800">
-                            {req.requested_check_in ? new Date(req.requested_check_in).toLocaleString() : 'No Correction'}
+                            {req.requested_check_in ? formatDateTime(req.requested_check_in) : 'No Correction'}
                           </span>
                         </div>
                         <div>
                           <span className="text-slate-400 block text-xs uppercase font-bold tracking-wider mb-1">Requested Check-Out</span>
                           <span className="font-semibold text-slate-800">
-                            {req.requested_check_out ? new Date(req.requested_check_out).toLocaleString() : 'No Correction'}
+                            {req.requested_check_out ? formatDateTime(req.requested_check_out) : 'No Correction'}
                           </span>
                         </div>
                       </div>
@@ -575,8 +579,8 @@ export default function RegularizationManagementPage() {
                       {myRequests.map((r) => (
                         <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
                           <td className="py-4 px-4 text-xs font-bold text-slate-800 space-y-1">
-                            <div>IN: {r.requested_check_in ? new Date(r.requested_check_in).toLocaleString() : 'N/A'}</div>
-                            <div>OUT: {r.requested_check_out ? new Date(r.requested_check_out).toLocaleString() : 'N/A'}</div>
+                            <div>IN: {r.requested_check_in ? formatDateTime(r.requested_check_in) : 'N/A'}</div>
+                            <div>OUT: {r.requested_check_out ? formatDateTime(r.requested_check_out) : 'N/A'}</div>
                           </td>
                           <td className="py-4 px-4 text-slate-600 text-xs max-w-xs truncate">
                             {r.reason}

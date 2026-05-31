@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { Calendar, PlusCircle, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 
 interface LeaveBalance {
   id: string;
@@ -230,7 +231,7 @@ export default function EmployeeLeavesPage() {
                         {r.leave_type.replace('_', ' ')}
                       </td>
                       <td className="py-4 px-4 text-slate-500 text-xs">
-                        {new Date(r.start_date).toLocaleDateString()} to {new Date(r.end_date).toLocaleDateString()}
+                        {formatDate(r.start_date)} to {formatDate(r.end_date)}
                       </td>
                       <td className="py-4 px-4">
                         <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold capitalize ${

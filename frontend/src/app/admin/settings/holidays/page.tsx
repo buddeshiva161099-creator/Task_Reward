@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Calendar, Plus, Trash2, Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 
 interface Holiday {
   id: string;
@@ -113,7 +113,7 @@ export default function HolidaysSettingsPage() {
                     <td className="px-6 py-4 text-sm font-bold text-slate-900">{idx + 1}</td>
                     <td className="px-6 py-4 text-sm font-medium text-slate-700">{h.name}</td>
                     <td className="px-6 py-4 text-sm font-medium text-slate-600">
-                      {new Date(h.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      {formatDate(h.date)}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <button 

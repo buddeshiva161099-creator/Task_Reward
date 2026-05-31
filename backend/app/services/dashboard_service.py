@@ -4,9 +4,11 @@ Dashboard service - analytics and summary data for dashboards.
 from app.models.user import User, UserRole
 from app.models.task import Task, TaskStatus
 from app.models.activity_log import ActivityLog
+from app.models.company import Company
 from app.services.task_service import get_task_counts
 from app.services.reward_service import get_leaderboard
 from app.models.attendance import Attendance, ist_now, IST
+from app.utils.ist_time import to_utc_iso
 from beanie import PydanticObjectId
 from beanie.operators import In, NE
 from datetime import datetime, timedelta, timezone
@@ -25,19 +27,18 @@ def _build_history_entry(day, record) -> dict:
     """Build an attendance history entry dict. Module-level helper (reused across functions)."""
     # Convert day to UTC isoformat string ending in Z
     if isinstance(day, datetime):
-        day_utc = day.astimezone(timezone.utc)
-        date_str = day_utc.isoformat().replace("+00:00", "Z")
+        date_str = to_utc_iso(day)
     else:
-        day_utc = datetime.combine(day, datetime.min.time()).replace(tzinfo=IST).astimezone(timezone.utc)
-        date_str = day_utc.isoformat().replace("+00:00", "Z")
+        day_dt = datetime.combine(day, datetime.min.time()).replace(tzinfo=IST)
+        date_str = to_utc_iso(day_dt)
 
     entry: dict = {
         "date": date_str,
         "status": "present" if record else "absent",
     }
     if record:
-        entry["check_in"] = record.check_in.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if record.check_in else None
-        entry["check_out"] = record.check_out.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if record.check_out else None
+        entry["check_in"] = to_utc_iso(record.check_in) if record.check_in else None
+        entry["check_out"] = to_utc_iso(record.check_out) if record.check_out else None
         entry["location_in"] = record.location_in
         entry["location_out"] = record.location_out
         entry["address_in"] = record.address_in
@@ -164,7 +165,7 @@ async def get_admin_dashboard(current_user: User, filter_type: str = "month", cu
             "user_name": user_map.get(a.user_id, "Unknown"),
             "action": a.action,
             "details": a.details,
-            "timestamp": a.timestamp.isoformat() + "Z",
+            "timestamp": to_utc_iso(a.timestamp),
         }
         for a in recent_activities
     ]
@@ -219,7 +220,7 @@ async def get_employee_dashboard(user_id: str, filter_type: str = "month", custo
             "user_name": user.name,
             "action": a.action,
             "details": a.details,
-            "timestamp": a.timestamp.isoformat() + "Z",
+            "timestamp": to_utc_iso(a.timestamp),
         }
         for a in recent_activities
     ]
@@ -273,6 +274,12 @@ async def get_employee_dashboard(user_id: str, filter_type: str = "month", custo
         attendance_history.append(_build_history_entry(day, record))
     attendance_history.reverse()
 
+    # Fetch company to check work days configuration dynamically
+    company = await Company.get(user.company_id) if user.company_id else None
+    if not company:
+        company = await Company.find_one(Company.is_active == True)
+    work_days_set = {d.strip().lower() for d in company.work_days} if (company and company.work_days) else None
+
     # Last 90 days attendance history for detailed calendar
     attendance_history_detailed = []
     for i in range(90):
@@ -280,8 +287,11 @@ async def get_employee_dashboard(user_id: str, filter_type: str = "month", custo
         record = attendance_map.get(day.date())
         if record:
             attendance_history_detailed.append(_build_history_entry(day, record))
-        elif day.weekday() < 5:  # Mon-Fri
-            attendance_history_detailed.append(_build_history_entry(day, None))
+        else:
+            day_name_lower = day.strftime("%A").lower()
+            is_workday = (day_name_lower in work_days_set) if work_days_set is not None else (day.weekday() < 5)
+            if is_workday:
+                attendance_history_detailed.append(_build_history_entry(day, None))
 
     # Calculate monthly task efficiency rate
     month_start = today_start.replace(day=1)
@@ -364,12 +374,12 @@ async def get_all_attendance_summary(visible_employee_ids=None):
             date_str = day.date().isoformat()
             record = log_map.get(uid, {}).get(date_str)
             entry = {
-                "date": day.isoformat() + "Z",
+                "date": to_utc_iso(day),
                 "status": "present" if record else "absent",
             }
             if record:
-                entry["check_in"] = record.check_in.isoformat() + "Z" if record.check_in else None
-                entry["check_out"] = record.check_out.isoformat() + "Z" if record.check_out else None
+                entry["check_in"] = to_utc_iso(record.check_in) if record.check_in else None
+                entry["check_out"] = to_utc_iso(record.check_out) if record.check_out else None
                 entry["location_in"] = record.location_in
                 entry["location_out"] = record.location_out
                 entry["address_in"] = record.address_in

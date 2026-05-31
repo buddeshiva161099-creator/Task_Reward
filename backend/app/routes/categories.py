@@ -8,6 +8,7 @@ from app.auth.dependencies import get_current_user, require_admin
 from app.models.user import User
 from app.models.category import Category
 from datetime import datetime
+from app.utils.ist_time import to_utc_iso
 
 router = APIRouter(prefix="/categories", tags=["Category Management"])
 
@@ -37,7 +38,7 @@ class CategoryResponse(BaseModel):
             name=cat.name,
             color=cat.color,
             is_active=cat.is_active,
-            created_at=cat.created_at.isoformat() + "Z",
+            created_at=to_utc_iso(cat.created_at),
         )
 
 

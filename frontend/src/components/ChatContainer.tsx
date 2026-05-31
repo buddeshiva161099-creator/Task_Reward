@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
+import { formatTimeIST } from '@/lib/utils';
 import {
   MessageSquare, Users, User, Plus, Settings, Search, Paperclip, Send,
   Trash2, X, Trophy, Calendar, ClipboardList, Check, ArrowDown,
@@ -621,7 +622,7 @@ export default function ChatContainer() {
                     </div>
                     {item.last_message_time && (
                       <span className={`text-[9px] font-medium ${unreadCount > 0 ? 'text-indigo-500' : 'text-slate-400'}`}>
-                        {new Date(item.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeIST(item.last_message_time)}
                       </span>
                     )}
                   </div>
@@ -722,8 +723,7 @@ export default function ChatContainer() {
                 <>
                   {messages.map((msg) => {
                     const isOwn = msg.sender_id === user?.id;
-                    const date = new Date(msg.created_at);
-                    const formattedTime = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                    const formattedTime = formatTimeIST(msg.created_at);
                     
                     return (
                       <div

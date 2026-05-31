@@ -8,6 +8,7 @@ from typing import List, Optional
 from beanie import PydanticObjectId
 from beanie.operators import Or, In
 from datetime import datetime, timedelta
+from app.utils.ist_time import to_utc_iso
 
 router = APIRouter(prefix="/payroll", tags=["Payroll Management"])
 
@@ -48,7 +49,8 @@ async def calculate_corporate_payroll(
     employee: User,
     month: str,
     drafted_by_id: Optional[PydanticObjectId] = None,
-    drafted_by_name: Optional[str] = None
+    drafted_by_name: Optional[str] = None,
+    force: bool = False
 ) -> Payroll:
     from app.models.company import Company
     from app.models.attendance import Attendance, IST
@@ -80,18 +82,18 @@ async def calculate_corporate_payroll(
             joining_date = datetime.strptime(employee.hiring_date, "%Y-%m-%d").replace(tzinfo=IST)
         except Exception:
             pass
-    if not joining_date:
-        joining_date = employee.created_at
-        if joining_date.tzinfo is None:
-            joining_date = joining_date.replace(tzinfo=timezone.utc)
     
-    joining_date_utc = joining_date.astimezone(timezone.utc)
+    # If no hiring date is configured, assume they joined before this month (no active window limit)
+    if not joining_date:
+        joining_date_utc = start_of_month
+    else:
+        joining_date_utc = joining_date.astimezone(timezone.utc)
 
     if joining_date_utc > end_of_month:
         raise ValueError(f"Employee {employee.name} joined after the selected month ({month}).")
 
-    # 3. Active window proration
-    active_start_date_utc = max(start_of_month, joining_date_utc)
+    # 3. Active window proration (always covers the full month cycle: 1st of the month to the last date of that month)
+    active_start_date_utc = start_of_month
     active_end_date_utc = end_of_month
     
     active_start_date = active_start_date_utc.astimezone(IST)
@@ -121,10 +123,14 @@ async def calculate_corporate_payroll(
     total_working_days = 0
     holidays_weekends = 0
     
+    # Pre-build lowercase workdays set for dynamic weekend check based on company settings
+    work_days_set = {d.strip().lower() for d in company.work_days} if (company and company.work_days) else None
+
     cur_day = active_start_date
     while cur_day.date() <= active_end_date.date():
         cur_date = cur_day.date()
-        is_weekend = cur_date.weekday() >= 5
+        day_name_lower = cur_date.strftime("%A").lower()
+        is_weekend = (day_name_lower not in work_days_set) if work_days_set is not None else (cur_date.weekday() >= 5)
         is_holiday = cur_date in holiday_dates
         
         if is_weekend or is_holiday:
@@ -175,22 +181,29 @@ async def calculate_corporate_payroll(
     cur_day = active_start_date
     while cur_day.date() <= active_end_date.date():
         cur_date = cur_day.date()
-        is_weekend = cur_date.weekday() >= 5
+        day_name_lower = cur_date.strftime("%A").lower()
+        is_weekend = (day_name_lower not in work_days_set) if work_days_set is not None else (cur_date.weekday() >= 5)
         is_holiday = cur_date in holiday_dates
         
         if not (is_weekend or is_holiday):
             log = attendance_map.get(cur_date)
             is_regularized = log and str(log.id) in regularized_attendance_ids
 
-            if log:
+            if is_regularized:
+                present_days += 1
+                approved_regularization_days += 1
+                if log:
+                    status_lower = log.status.lower() if log.status else ""
+                    if "late" in status_lower:
+                        late_penalties += 100.0
+                    if "overtime" in status_lower or "approved_overtime" in status_lower:
+                        overtime_pay += 500.0
+            elif log:
                 status_lower = log.status.lower() if log.status else ""
                 if "absent" in status_lower or "absence" in status_lower:
                     absent_days += 1
                 else:
-                    if is_regularized:
-                        approved_regularization_days += 1
-                    else:
-                        present_days += 1
+                    present_days += 1
 
                     # Late check-in penalty: flat 100 INR
                     if "late" in status_lower:
@@ -220,7 +233,7 @@ async def calculate_corporate_payroll(
                     absent_days += 1
         cur_day += timedelta(days=1)
 
-    payable_days = present_days + paid_leaves + approved_regularization_days
+    payable_days = present_days + paid_leaves
     absent_days = max(0, total_working_days - payable_days)
 
     # 9. Perform Calculations
@@ -270,7 +283,8 @@ async def calculate_corporate_payroll(
             cur_day = active_start_date
             while cur_day.date() <= active_end_date.date():
                 cur_date = cur_day.date()
-                is_weekend = cur_date.weekday() >= 5
+                day_name_lower = cur_date.strftime("%A").lower()
+                is_weekend = (day_name_lower not in work_days_set) if work_days_set is not None else (cur_date.weekday() >= 5)
                 is_holiday = cur_date in holiday_dates
                 
                 if not (is_weekend or is_holiday):
@@ -339,7 +353,7 @@ async def calculate_corporate_payroll(
                 incentives *= 0.95
 
     # Check if payroll is already locked
-    if existing and existing.status in [PayrollStatus.LOCKED, PayrollStatus.PAID]:
+    if existing and existing.status in [PayrollStatus.LOCKED, PayrollStatus.PAID] and not force:
         # Do not overwrite locked payrolls. We just mark it as recalculation_required elsewhere.
         return existing
 
@@ -869,7 +883,8 @@ async def manual_recalculate_payroll(
             employee=employee,
             month=payroll.month,
             drafted_by_id=admin.id,
-            drafted_by_name=admin.name
+            drafted_by_name=admin.name,
+            force=True
         )
         return {"message": "Payroll recalculated successfully", "id": str(new_payroll.id)}
     except Exception as e:
@@ -936,7 +951,7 @@ async def get_payroll_history(
         {
             "version_number": h.version_number,
             "reason_for_change": h.reason_for_change,
-            "created_at": h.created_at.isoformat(),
+            "created_at": to_utc_iso(h.created_at),
             "snapshot": h.payroll_snapshot
         }
         for h in history
@@ -996,7 +1011,7 @@ async def get_my_payslips(current_user: User = Depends(get_current_user)):
             "deductions": p.deductions + p.pf_deduction + p.esi_deduction + p.tax_deduction,
             "net_salary": p.net_salary,
             "approved_by": p.approved_by_name,
-            "finalized_at": p.updated_at.isoformat(),
+            "finalized_at": to_utc_iso(p.updated_at),
             "status": p.status.value
         }
         for p in payslips
@@ -1046,6 +1061,6 @@ async def get_my_payslips_v2(current_user: User = Depends(get_current_user)):
             "version_number": p.version_number,
             
             "status": p.status.value,
-            "created_at": p.created_at.isoformat(),
+            "created_at": to_utc_iso(p.created_at),
         })
     return res

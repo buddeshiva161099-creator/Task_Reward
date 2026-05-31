@@ -131,7 +131,7 @@ export default function AIAssistant() {
                   "text-[9px] mt-1 block",
                   msg.sender === 'user' ? "text-indigo-200 text-right" : "text-slate-400"
                 )}>
-                  {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {msg.timestamp.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })}
                 </span>
               </div>
             ))}

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
-import { Employee, Task, Company } from '@/types';
+import { Employee, Task, Company, Attendance } from '@/types';
 import StatusChart from '@/components/StatusChart';
 import EmptyState from '@/components/EmptyState';
 import {
@@ -15,10 +15,224 @@ import {
   Mail, Calendar, Trophy, CheckCircle2, Clock, AlertCircle,
   ClipboardList, Activity, ArrowLeft, Plus, UserX, UserCheck,
   MessageSquarePlus, Play, Trash2, ChevronUp, Send,
-  Eye, EyeOff, Copy, ShieldCheck, X, Phone, PhoneCall, Pencil, Award, Power, Lock, User, Shield, Building, Tag, Briefcase, Wallet, MapPin, LogIn, LogOut
+  Eye, EyeOff, Copy, ShieldCheck, X, Phone, PhoneCall, Pencil, Award, Power, Lock, User, Shield, Building, Tag, Briefcase, Wallet, MapPin, LogIn, LogOut,
+  Umbrella, Star, Sun, History
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { cn } from '@/lib/utils';
+
+// ─── Enriched Calendar Summary Types and Helpers ─────────────────────────────
+interface CalendarSummary {
+  attendance_logs: Attendance[];
+  regularized_dates: string[];
+  regularizations_detail: {
+    id: string;
+    date: string;
+    requested_check_in: string | null;
+    requested_check_out: string | null;
+    reason: string;
+    comments: string | null;
+  }[];
+  leave_dates: {
+    id: string;
+    start: string;
+    end: string;
+    leave_type: string;
+    reason: string;
+    comments: string | null;
+  }[];
+  holiday_dates: { date: string; name: string }[];
+  work_days: string[];
+  work_start_time: string;
+}
+
+type ListRowType = 'attendance' | 'regularized' | 'leave' | 'holiday';
+interface UnifiedRow {
+  type: ListRowType;
+  date: string; // YYYY-MM-DD for sorting
+  displayDate: string;
+  checkIn?: string | null;
+  checkOut?: string | null;
+  status?: string;
+  flags?: string[];
+  isAutoClosed?: boolean;
+  locationIn?: { lat: number; lng: number } | null;
+  locationDriftKm?: number | null;
+  addressIn?: string | null;
+  label: string;
+  sublabel?: string;
+  badgeColor: string;
+  badgeBg: string;
+  badgeBorder: string;
+  icon: React.ReactNode;
+  reason?: string;
+  comments?: string | null;
+}
+
+const LEAVE_COLORS: Record<string, { bg: string; text: string; border: string; label: string }> = {
+  casual:           { bg: 'bg-pink-50',   text: 'text-pink-700',   border: 'border-pink-200',   label: 'Casual Leave' },
+  sick:             { bg: 'bg-rose-50',   text: 'text-rose-700',   border: 'border-rose-200',   label: 'Sick Leave' },
+  earned:           { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', label: 'Earned Leave' },
+  loss_of_pay:      { bg: 'bg-red-50',    text: 'text-red-700',    border: 'border-red-200',    label: 'Loss of Pay' },
+  work_from_home:   { bg: 'bg-cyan-50',   text: 'text-cyan-700',   border: 'border-cyan-200',   label: 'Work From Home' },
+};
+
+const getFlagLabel = (flag: string): string => {
+  if (flag === 'outside_geofence') return '📍 Outside Office Zone';
+  if (flag === 'outside_geofence_checkout') return '📍 Checkout Outside Zone';
+  if (flag === 'device_changed') return '📱 Device Changed';
+  if (flag === 'off_hours_checkin') return '🌙 Off-Hours Check-in';
+  if (flag === 'suspicious_coordinates') return '⚠️ Suspicious GPS';
+  if (flag === 'short_session') return '⏱️ Short Session';
+  if (flag === 'auto_closed') return '🔄 Auto-Closed';
+  if (flag.startsWith('location_drift_')) return `📏 ${flag.replace('location_drift_', 'Drift: ')}`;
+  return flag;
+};
+
+function buildUnifiedRows(summary: CalendarSummary | null, oldStatsHistory: any[]): UnifiedRow[] {
+  const rows: UnifiedRow[] = [];
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  thirtyDaysAgo.setHours(0, 0, 0, 0);
+
+  // If we have calendar summary, build from it, otherwise build from old stats history as fallback
+  if (summary) {
+    const logs = summary.attendance_logs;
+    const regularizedSet = new Set(summary.regularized_dates);
+
+    // Attendance logs
+    for (const log of logs) {
+      const checkInDate = new Date(ensureUTC(log.check_in));
+      if (checkInDate < thirtyDaysAgo) continue;
+      const dateKey = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth()+1).padStart(2,'0')}-${String(checkInDate.getDate()).padStart(2,'0')}`;
+      const isReg = regularizedSet.has(dateKey);
+
+      if (isReg) {
+        rows.push({
+          type: 'regularized',
+          date: dateKey,
+          displayDate: formatDate(log.check_in),
+          checkIn: log.check_in,
+          checkOut: log.check_out ?? null,
+          flags: log.flags ?? [],
+          isAutoClosed: log.is_auto_closed,
+          locationIn: log.location_in ?? null,
+          locationDriftKm: log.location_drift_km ?? null,
+          addressIn: log.address_in ?? null,
+          label: 'Regularized',
+          sublabel: 'Approved correction counted as present',
+          badgeColor: 'text-blue-700',
+          badgeBg: 'bg-blue-50',
+          badgeBorder: 'border-blue-200',
+          icon: <Star className="w-3.5 h-3.5 text-blue-500" />,
+        });
+      } else {
+        rows.push({
+          type: 'attendance',
+          date: dateKey,
+          displayDate: formatDate(log.check_in),
+          checkIn: log.check_in,
+          checkOut: log.check_out ?? null,
+          status: log.status,
+          flags: log.flags ?? [],
+          isAutoClosed: log.is_auto_closed,
+          locationIn: log.location_in ?? null,
+          locationDriftKm: log.location_drift_km ?? null,
+          addressIn: log.address_in ?? null,
+          label: log.status?.toUpperCase() ?? 'PRESENT',
+          badgeColor: log.status === 'present' ? 'text-emerald-600' : 'text-amber-600',
+          badgeBg: log.status === 'present' ? 'bg-emerald-50' : 'bg-amber-50',
+          badgeBorder: log.status === 'present' ? 'border-emerald-100' : 'border-amber-100',
+          icon: <LogIn className="w-3.5 h-3.5 text-emerald-500" />,
+        });
+      }
+    }
+
+    // Approved leaves (expand date range into individual rows)
+    if (summary.leave_dates) {
+      for (const leave of summary.leave_dates) {
+        const leaveStyle = LEAVE_COLORS[leave.leave_type] ?? { bg: 'bg-pink-50', text: 'text-pink-700', border: 'border-pink-200', label: 'Leave' };
+        const start = new Date(leave.start + 'T00:00:00');
+        const end   = new Date(leave.end   + 'T00:00:00');
+        const cur   = new Date(start);
+        while (cur <= end) {
+          if (cur >= thirtyDaysAgo) {
+            const dateKey = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+            // Don't duplicate if an attendance log already covers this day
+            const alreadyCovered = rows.some(r => r.date === dateKey);
+            if (!alreadyCovered) {
+              rows.push({
+                type: 'leave',
+                date: dateKey,
+                displayDate: cur.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+                label: leaveStyle.label,
+                sublabel: leave.reason,
+                badgeColor: leaveStyle.text,
+                badgeBg: leaveStyle.bg,
+                badgeBorder: leaveStyle.border,
+                icon: <Umbrella className="w-3.5 h-3.5 text-pink-500" />,
+                reason: leave.reason,
+                comments: leave.comments,
+              });
+            }
+          }
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+    }
+
+    // Holidays
+    if (summary.holiday_dates) {
+      for (const h of summary.holiday_dates) {
+        if (new Date(h.date + 'T00:00:00') >= thirtyDaysAgo) {
+          const alreadyCovered = rows.some(r => r.date === h.date);
+          if (!alreadyCovered) {
+            rows.push({
+              type: 'holiday',
+              date: h.date,
+              displayDate: new Date(h.date + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
+              label: 'Holiday',
+              sublabel: h.name,
+              badgeColor: 'text-violet-700',
+              badgeBg: 'bg-violet-50',
+              badgeBorder: 'border-violet-200',
+              icon: <Sun className="w-3.5 h-3.5 text-violet-500" />,
+            });
+          }
+        }
+      }
+    }
+  } else if (oldStatsHistory && oldStatsHistory.length > 0) {
+    // Fallback if calendarSummary hasn't loaded yet
+    for (const h of oldStatsHistory) {
+      const checkInDate = h.check_in ? new Date(ensureUTC(h.check_in)) : null;
+      if (!checkInDate || checkInDate < thirtyDaysAgo) continue;
+      const dateKey = `${checkInDate.getFullYear()}-${String(checkInDate.getMonth()+1).padStart(2,'0')}-${String(checkInDate.getDate()).padStart(2,'0')}`;
+      
+      rows.push({
+        type: h.is_regularized ? 'regularized' : 'attendance',
+        date: dateKey,
+        displayDate: formatDate(h.check_in),
+        checkIn: h.check_in,
+        checkOut: h.check_out ?? null,
+        status: h.status,
+        flags: [],
+        locationIn: h.location_in ?? null,
+        addressIn: h.address_in ?? null,
+        label: h.is_regularized ? 'REGULARIZED' : (h.status?.toUpperCase() ?? 'PRESENT'),
+        badgeColor: h.is_regularized ? 'text-blue-700' : (h.status === 'present' ? 'text-emerald-600' : 'text-amber-600'),
+        badgeBg: h.is_regularized ? 'bg-blue-50' : (h.status === 'present' ? 'bg-emerald-50' : 'bg-amber-50'),
+        badgeBorder: h.is_regularized ? 'border-blue-200' : (h.status === 'present' ? 'border-emerald-100' : 'border-amber-100'),
+        icon: h.is_regularized ? <Star className="w-3.5 h-3.5 text-blue-500" /> : <LogIn className="w-3.5 h-3.5 text-emerald-500" />,
+      });
+    }
+  }
+
+  // Sort newest first
+  rows.sort((a, b) => b.date.localeCompare(a.date));
+  return rows;
+}
+
 
 function EmployeeProfileContent() {
   const { user, isHRTeam, isAdmin, isManager, isAssistantManager } = useAuth();
@@ -65,6 +279,7 @@ function EmployeeProfileContent() {
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [mounted, setMounted] = useState(false);
+  const [empCalendarSummary, setEmpCalendarSummary] = useState<CalendarSummary | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -89,13 +304,17 @@ function EmployeeProfileContent() {
   const fetchData = useCallback(async () => {
     if (!id) return;
     try {
-      const [empRes, statsRes, tasksRes, companiesRes, categoriesRes, allUsersRes] = await Promise.all([
+      const [empRes, statsRes, tasksRes, companiesRes, categoriesRes, allUsersRes, calendarRes] = await Promise.all([
         api.get(`/admin/employees/${id}`),
         api.get(`/admin/employees/${id}/stats`),
         api.get(`/tasks?employee_id=${id}`),
         api.get('/companies'),
         api.get('/categories'),
-        api.get('/admin/employees/all-users')
+        api.get('/admin/employees/all-users'),
+        api.get(`/attendance/calendar-summary/${id}`).catch(err => {
+          console.error("Calendar summary fetch error:", err);
+          return { data: null };
+        })
       ]);
       setEmployee(empRes.data);
       setStats(statsRes.data);
@@ -103,6 +322,7 @@ function EmployeeProfileContent() {
       setCompanies(companiesRes.data);
       setCategories(categoriesRes.data);
       setAllUsers(allUsersRes.data);
+      setEmpCalendarSummary(calendarRes?.data || null);
 
       try {
         const structRes = await api.get(`/payroll/structure/${id}`);
@@ -331,6 +551,8 @@ function EmployeeProfileContent() {
     );
   }
 
+  const unifiedRows = buildUnifiedRows(empCalendarSummary, stats?.attendance_history_detailed || []);
+
   return (
     <div className="max-w-7xl mx-auto space-y-8 pb-12">
       {showAttendanceModal ? (
@@ -402,97 +624,172 @@ function EmployeeProfileContent() {
             <div className="glass rounded-3xl p-8 border border-slate-100">
               <div className="grid grid-cols-1 xl:grid-cols-3 gap-12 lg:gap-16">
                 {[2, 1, 0].map((offset) => {
-                  const date = new Date(selectedYear, selectedMonth, 1);
-                  date.setMonth(date.getMonth() - offset);
+                  const date = new Date(selectedYear, selectedMonth - offset, 1);
                   return (
                     <MonthCalendar
                       key={offset}
                       year={date.getFullYear()}
                       month={date.getMonth()}
-                      history={stats?.attendance_history_detailed || []}
+                      history={empCalendarSummary?.attendance_logs || []}
+                      regularizedDates={empCalendarSummary?.regularized_dates || []}
+                      leaveDates={empCalendarSummary?.leave_dates || []}
+                      holidayDates={empCalendarSummary?.holiday_dates || []}
+                      workDays={empCalendarSummary?.work_days}
+                      workStartTime={empCalendarSummary?.work_start_time}
                     />
                   );
                 })}
               </div>
 
-              {/* Detailed Attendance Logs Table */}
-              {stats?.attendance_history_detailed && stats.attendance_history_detailed.filter((e: any) => e.status === 'present').length > 0 && (
-                <div className="mt-10 border-t border-slate-100 pt-8">
-                  <h4 className="font-bold text-slate-700 text-base mb-5 flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-indigo-500" />
-                    Attendance Log Details (Last 90 Days)
-                  </h4>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-100 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                          <th className="py-3 px-4">Date</th>
-                          <th className="py-3 px-4">Login (IST)</th>
-                          <th className="py-3 px-4">Logout (IST)</th>
-                          <th className="py-3 px-4">Duration</th>
-                          <th className="py-3 px-4 text-center">Map</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">
-                        {stats.attendance_history_detailed
-                          .filter((e: any) => e.status === 'present')
-                          .slice(0, 30)
-                          .map((e: any, i: number) => {
-                            const checkInDate = e.check_in ? new Date(ensureUTC(e.check_in)) : null;
-                            const checkOutDate = e.check_out ? new Date(ensureUTC(e.check_out)) : null;
-                            const durationMs = checkInDate && checkOutDate ? checkOutDate.getTime() - checkInDate.getTime() : null;
-                            const durationHrs = durationMs ? Math.floor(durationMs / 3600000) : null;
-                            const durationMins = durationMs ? Math.floor((durationMs % 3600000) / 60000) : null;
-                            const mapUrl = e.location_in ? `https://www.google.com/maps?q=${e.location_in.lat},${e.location_in.lng}` : null;
-                            return (
-                              <tr key={i} className={cn("hover:bg-slate-50/50 transition-colors", e.is_regularized && "bg-violet-50/30")}>
-                                <td className="py-3 px-4 font-medium text-slate-800 text-xs">
-                                  {checkInDate ? checkInDate.toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '—'}
-                                  {e.is_regularized && <span className="ml-1.5 text-[9px] font-black text-violet-600 bg-violet-50 px-1.5 py-0.5 rounded-full border border-violet-100">REG</span>}
-                                </td>
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700">
-                                    <LogIn className="w-3 h-3" />
-                                    {checkInDate ? checkInDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' }) : '—'}
-                                  </div>
-                                </td>
-                                <td className="py-3 px-4">
-                                  {checkOutDate ? (
-                                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-600">
-                                      <LogOut className="w-3 h-3" />
-                                      {checkOutDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
-                                    </div>
-                                  ) : (
-                                    <span className="text-amber-500 text-xs font-bold">Active</span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4 text-xs text-slate-500 font-medium">
-                                  {durationHrs !== null ? `${durationHrs}h ${durationMins}m` : '—'}
-                                </td>
-                                <td className="py-3 px-4 text-center">
-                                  {mapUrl ? (
-                                    <a
-                                      href={mapUrl}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 text-indigo-500 hover:text-indigo-700 text-xs font-bold hover:underline"
-                                      title={e.address_in || 'View on Google Maps'}
-                                    >
-                                      <MapPin className="w-3.5 h-3.5" />
-                                      <span>View</span>
-                                    </a>
-                                  ) : (
-                                    <span className="text-slate-200 text-xs">—</span>
-                                  )}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                      </tbody>
-                    </table>
-                  </div>
+              {/* ── Unified Recent Logs Table ── */}
+              <div className="mt-10 border-t border-slate-100 pt-8">
+                <h4 className="font-bold text-slate-700 text-base mb-5 flex items-center gap-2">
+                  <History className="w-5 h-5 text-indigo-500" />
+                  Attendance Log Details (Last 90 Days)
+                </h4>
+                <div className="text-xs text-slate-400 font-bold mb-4 flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4" />
+                  Last 30 days · includes leaves, holidays &amp; regularizations
                 </div>
-              )}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-slate-400 text-xs font-bold uppercase tracking-wider">
+                        <th className="py-3 px-4">Date</th>
+                        <th className="py-3 px-4">Type / Status</th>
+                        <th className="py-3 px-4">In Time (IST)</th>
+                        <th className="py-3 px-4">Out Time (IST)</th>
+                        <th className="py-3 px-4">Notes / Flags</th>
+                        <th className="py-3 px-4 text-right">Location</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {unifiedRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-400 text-xs font-medium">
+                            No logs found for the last 30 days.
+                          </td>
+                        </tr>
+                      ) : (
+                        unifiedRows.map((row, i) => (
+                          <tr
+                            key={`${row.type}-${row.date}-${i}`}
+                            className={cn(
+                              "hover:bg-slate-50/50 transition-colors",
+                              row.type === 'holiday' && "bg-violet-50/20",
+                              row.type === 'leave' && "bg-pink-50/20",
+                              row.type === 'regularized' && "bg-blue-50/20 border-l-2 border-l-blue-400",
+                              row.isAutoClosed && "bg-amber-50/30",
+                              (row.flags && row.flags.length > 0) && row.type === 'attendance' && "border-l-2 border-l-amber-400",
+                            )}
+                          >
+                            {/* Date */}
+                            <td className="py-3 px-4 font-semibold text-slate-800 text-xs whitespace-nowrap">
+                              {row.displayDate}
+                            </td>
+
+                            {/* Status badge */}
+                            <td className="py-3 px-4">
+                              <span className={cn(
+                                "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border",
+                                row.badgeBg, row.badgeColor, row.badgeBorder
+                              )}>
+                                {row.icon}
+                                {row.label}
+                              </span>
+                              {row.sublabel && (
+                                <p className="text-[10px] text-slate-400 mt-0.5 max-w-[180px] truncate">{row.sublabel}</p>
+                              )}
+                            </td>
+
+                            {/* In Time */}
+                            <td className="py-3 px-4">
+                              {row.checkIn ? (
+                                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                                  <LogIn className="w-3.5 h-3.5 shrink-0" />
+                                  {formatDateTime(row.checkIn)}
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </td>
+
+                            {/* Out Time */}
+                            <td className="py-3 px-4">
+                              {row.checkOut ? (
+                                <div className="flex items-center gap-2 text-xs font-semibold text-rose-600">
+                                  <LogOut className={`w-3.5 h-3.5 shrink-0 ${row.isAutoClosed ? 'text-amber-500' : 'text-rose-500'}`} />
+                                  {formatDateTime(row.checkOut)}
+                                  {row.isAutoClosed && (
+                                    <span className="text-[9px] font-black text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">AUTO</span>
+                                  )}
+                                </div>
+                              ) : row.type === 'attendance' && !row.checkOut ? (
+                                <span className="text-amber-500 font-bold text-xs">Active Session</span>
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </td>
+
+                            {/* Notes / Flags */}
+                            <td className="py-3 px-4">
+                              <div className="flex flex-wrap gap-1 max-w-[220px]">
+                                {/* Attendance flags */}
+                                {(row.flags && row.flags.length > 0) && row.flags.map((flag, fi) => (
+                                  <span key={fi} className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200 whitespace-nowrap">
+                                    {getFlagLabel(flag)}
+                                  </span>
+                                ))}
+                                {/* Leave/holiday reason */}
+                                {(row.type === 'leave' || row.type === 'holiday' || row.type === 'regularized') && row.reason && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] text-slate-500 italic max-w-[200px] truncate">
+                                    {row.reason}
+                                  </span>
+                                )}
+                                {row.comments && (
+                                  <span className="px-1.5 py-0.5 rounded text-[9px] text-slate-400 italic max-w-[200px] truncate">
+                                    💬 {row.comments}
+                                  </span>
+                                )}
+                                {(!row.flags || row.flags.length === 0) && !row.reason && !row.comments && (
+                                  <span className="text-[10px] text-slate-300">—</span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Location */}
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex flex-col items-end gap-1">
+                                {row.locationIn ? (
+                                  <a
+                                    href={`https://www.google.com/maps?q=${row.locationIn.lat},${row.locationIn.lng}`}
+                                    target="_blank" rel="noopener noreferrer"
+                                    className="flex items-center gap-1.5 text-indigo-500 hover:text-indigo-700 hover:underline text-xs font-bold transition-colors"
+                                    title={row.addressIn || `${row.locationIn.lat.toFixed(5)}, ${row.locationIn.lng.toFixed(5)}`}
+                                  >
+                                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                    <span>Map View</span>
+                                  </a>
+                                ) : (
+                                  <div className="flex items-center gap-1 text-slate-300 text-xs cursor-not-allowed" title="No GPS data captured">
+                                    <MapPin className="w-3.5 h-3.5 shrink-0" />
+                                    <span>—</span>
+                                  </div>
+                                )}
+                                {row.locationDriftKm !== null && row.locationDriftKm !== undefined && (
+                                  <span className={cn("text-[9px] font-bold", row.locationDriftKm > 5 ? "text-rose-500" : "text-slate-400")}>
+                                    Drift: {row.locationDriftKm}km
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1742,126 +2039,165 @@ function EmployeeProfileContent() {
   );
 }
 
-function MonthCalendar({ year, month, history }: { year: number, month: number, history: any[] }) {
+function MonthCalendar({
+  year, month, history,
+  regularizedDates = [],
+  leaveDates = [],
+  holidayDates = [],
+  workDays = ['Monday','Tuesday','Wednesday','Thursday','Friday'],
+  workStartTime = '09:00'
+}: {
+  year: number;
+  month: number;
+  history: Attendance[];
+  regularizedDates?: string[];
+  leaveDates?: { start: string; end: string; leave_type: string }[];
+  holidayDates?: { date: string; name: string }[];
+  workDays?: string[];
+  workStartTime?: string;
+}) {
   const monthName = new Date(year, month).toLocaleString('default', { month: 'long', year: 'numeric' });
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay();
-
   const today = new Date();
-  const days = [];
 
-  let stats = {
-    workingDays: 0,
-    present: 0,
-    late: 0,
-    absent: 0,
-    holidays: 0,
-    leaves: 0
-  };
+  // Work day lookup
+  const workDayNames = new Set(workDays.map(d => d.toLowerCase()));
+  const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const isCompanyWorkDay = (date: Date) => workDayNames.has(dayNames[date.getDay()]);
+
+  // Regularized set
+  const regularizedSet = new Set(regularizedDates);
+
+  // Holiday map: date -> name
+  const holidayMap = new Map<string, string>();
+  for (const h of holidayDates) holidayMap.set(h.date, h.name);
+
+  // Leave map: date -> leave_type
+  const leaveDateMap = new Map<string, string>();
+  for (const leave of leaveDates) {
+    const start = new Date(leave.start + 'T00:00:00');
+    const end   = new Date(leave.end   + 'T00:00:00');
+    const cur   = new Date(start);
+    while (cur <= end) {
+      const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+      leaveDateMap.set(key, leave.leave_type);
+      cur.setDate(cur.getDate() + 1);
+    }
+  }
+
+  const stats = { working: 0, present: 0, late: 0, absent: 0, holiday: 0, leave: 0, regularized: 0 };
+  const days = [];
 
   for (let d = 1; d <= daysInMonth; d++) {
     const date = new Date(year, month, d);
-    const dayOfWeek = date.getDay();
-    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    const isWorkDay = isCompanyWorkDay(date);
     const isFuture = date > today;
+    const isPastOrToday = date <= today;
+    const dateKey = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 
-    const record = history.find((h: any) => {
-      const hDate = new Date(h.date);
-      return hDate.getFullYear() === year && hDate.getMonth() === month && hDate.getDate() === d;
+    const isHoliday = holidayMap.has(dateKey);
+    const holidayName = holidayMap.get(dateKey);
+    const isRegularized = regularizedSet.has(dateKey);
+    const leaveType = leaveDateMap.get(dateKey);
+
+    if (isWorkDay && isPastOrToday && !isHoliday) stats.working++;
+
+    const logs = history.filter(log => {
+      const logDate = new Date(ensureUTC(log.check_in));
+      return logDate.getFullYear() === year && logDate.getMonth() === month && logDate.getDate() === d;
     });
 
-    let status = record?.status || (isFuture ? 'none' : (isWeekend ? 'weekend' : 'absent'));
-
-    if (!isWeekend && !isFuture) {
-      stats.workingDays++;
-      if (status === 'present') stats.present++;
-      else if (status === 'late') stats.late++;
-      else if (status === 'absent') stats.absent++;
-      else if (status === 'holiday') stats.holidays++;
-      else if (status === 'leave') stats.leaves++;
-    }
-
-    let colorClass = 'bg-slate-50 text-slate-400';
+    type DayStatus = 'present' | 'regularized' | 'late' | 'absent' | 'holiday' | 'leave' | 'weekend' | 'none';
+    let status: DayStatus = 'none';
     let symbol = '';
+    let colorClass = '';
+    let tooltipText = '';
 
-    if (status === 'present') {
-      colorClass = 'bg-emerald-500 text-white shadow-lg shadow-emerald-100';
-      symbol = 'P';
-    } else if (status === 'late') {
-      colorClass = 'bg-amber-500 text-white shadow-lg shadow-amber-100';
-      symbol = 'L';
-    } else if (status === 'absent') {
-      colorClass = 'bg-rose-500 text-white shadow-lg shadow-rose-100';
-      symbol = 'A';
-    } else if (status === 'holiday') {
-      colorClass = 'bg-indigo-500 text-white';
-      symbol = 'H';
-    } else if (isWeekend) {
-      colorClass = 'bg-slate-100 text-slate-300';
+    if (isHoliday) {
+      // Holiday always wins — shown in purple regardless of attendance
+      status = 'holiday'; symbol = 'H'; colorClass = 'bg-violet-500 text-white';
+      tooltipText = holidayName ?? 'Holiday';
+      if (isPastOrToday) stats.holiday++;
+    } else if (logs.length > 0) {
+      const firstLog = logs[logs.length - 1];
+      const checkInTime = new Date(ensureUTC(firstLog.check_in)).toLocaleTimeString('en-GB', {
+        hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata'
+      });
+      if (isRegularized) {
+        status = 'regularized'; symbol = 'R'; colorClass = 'bg-blue-500 text-white';
+        tooltipText = 'Regularized — counted as Present';
+        stats.present++; stats.regularized++;
+      } else if (checkInTime > workStartTime) {
+        status = 'late'; symbol = 'L'; colorClass = 'bg-amber-500 text-white';
+        stats.late++; stats.present++;
+      } else {
+        status = 'present'; symbol = 'P'; colorClass = 'bg-emerald-500 text-white';
+        stats.present++;
+      }
+    } else if (isRegularized) {
+      status = 'regularized'; symbol = 'R'; colorClass = 'bg-blue-500 text-white';
+      tooltipText = 'Regularized — counted as Present';
+      stats.present++; stats.regularized++;
+    } else if (leaveType && isWorkDay && isPastOrToday) {
+      status = 'leave'; symbol = 'Lv'; colorClass = 'bg-pink-500 text-white';
+      tooltipText = `${LEAVE_COLORS[leaveType]?.label ?? 'Leave'}`;
+      stats.leave++;
+    } else if (isWorkDay && isPastOrToday) {
+      status = 'absent'; symbol = 'A'; colorClass = 'bg-rose-500 text-white';
+      stats.absent++;
+    } else if (!isWorkDay) {
+      status = 'weekend'; colorClass = 'bg-slate-100 text-slate-400';
     }
 
-    // Build tooltip
-    let tooltip = `${status.toUpperCase()}`;
-    if (record?.check_in) {
-      const ci = new Date(ensureUTC(record.check_in));
-      tooltip += `\nIn: ${ci.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`;
-    }
-    if (record?.check_out) {
-      const co = new Date(ensureUTC(record.check_out));
-      tooltip += `\nOut: ${co.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}`;
-    }
-    if (record?.is_regularized) {
-      tooltip += `\n[Regularized]`;
-    }
-
-    days.push({ day: d, status, symbol, colorClass, isFuture, record, tooltip });
+    days.push({ day: d, status, symbol, colorClass, isFuture, tooltipText });
   }
 
   return (
     <div className="flex flex-col">
-      <h3 className="text-center font-black text-xl text-slate-800 mb-8">{monthName}</h3>
-
-      <div className="grid grid-cols-7 gap-2 mb-8">
-        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
-          <div key={i} className="text-center text-[10px] font-black text-slate-300 py-2">{d}</div>
+      <h3 className="text-center font-bold text-slate-700 mb-4">{monthName}</h3>
+      <div className="grid grid-cols-7 gap-1 mb-6">
+        {['S','M','T','W','T','F','S'].map((d, i) => (
+          <div key={`${d}-${i}`} className="text-center text-[10px] font-black text-slate-400 py-1">{d}</div>
         ))}
         {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} />)}
-        {days.map(d => (
+        {days.map((d) => (
           <div
             key={d.day}
             className={cn(
-              "aspect-square rounded-xl flex flex-col items-center justify-center text-xs font-black relative transition-all group cursor-default",
+              "aspect-square flex flex-col items-center justify-center rounded-lg text-[10px] relative cursor-default",
               d.colorClass,
               d.isFuture && "opacity-20"
             )}
-            title={d.tooltip}
+            title={d.tooltipText || undefined}
           >
-            <span className="text-[10px] opacity-40 absolute top-1 left-1.5">{d.day}</span>
+            <span className="font-bold">{d.day}</span>
             {d.symbol && (
-              <span className="text-sm mt-1">{d.symbol}</span>
-            )}
-            {d.record?.is_regularized && (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-violet-500 border border-white" title="Regularized" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white text-slate-900 border border-slate-200 flex items-center justify-center font-black scale-75">
+                {d.symbol}
+              </span>
             )}
           </div>
         ))}
       </div>
+      <div className="space-y-1.5 bg-slate-50/50 rounded-2xl p-4 border border-slate-100">
+        <StatRow label="Working Days"  value={stats.working}                                   color="text-slate-600" />
+        <StatRow label="Present"       value={stats.present - stats.late - stats.regularized}  color="text-emerald-600" />
+        <StatRow label="Regularized"   value={stats.regularized}                               color="text-blue-600" />
+        <StatRow label="Late"          value={stats.late}                                       color="text-amber-600" />
+        <StatRow label="Absent"        value={stats.absent}                                     color="text-rose-600" />
+        <StatRow label="Holidays"      value={stats.holiday}                                    color="text-violet-600" />
+        <StatRow label="Leaves"        value={stats.leave}                                      color="text-pink-600" />
+      </div>
+    </div>
+  );
+}
 
-      <div className="space-y-2 pt-6 border-t border-slate-100">
-        {[
-          { label: 'Working Days', value: stats.workingDays, color: 'text-slate-600' },
-          { label: 'Present', value: stats.present, color: 'text-emerald-600' },
-          { label: 'Late', value: stats.late, color: 'text-amber-600' },
-          { label: 'Absent', value: stats.absent, color: 'text-rose-600' },
-          { label: 'Holidays', value: stats.holidays, color: 'text-indigo-600' },
-          { label: 'Leaves', value: stats.leaves, color: 'text-violet-600' },
-        ].map((s, i) => (
-          <div key={i} className="flex items-center justify-between px-2">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{s.label}</span>
-            <span className={cn("text-sm font-black", s.color)}>{s.value}</span>
-          </div>
-        ))}
-      </div>
+function StatRow({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center justify-between text-[11px] font-medium">
+      <span className="text-slate-500">{label}</span>
+      <span className={cn("font-bold", color)}>{value}</span>
     </div>
   );
 }

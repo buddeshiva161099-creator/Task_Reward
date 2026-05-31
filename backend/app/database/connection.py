@@ -17,7 +17,7 @@ from app.models.category import Category
 from app.models.leave import Leave
 from app.models.leave_balance import LeaveBalance
 from app.models.regularization import AttendanceRegularization
-from app.models.payroll import SalaryStructure, Payroll
+from app.models.payroll import SalaryStructure, Payroll, PayrollHistory
 from app.models.chat_group import ChatGroup
 from app.models.chat_message import ChatMessage
 from app.models.ai_insight import CachedAIInsight
@@ -69,7 +69,7 @@ async def init_db():
             document_models=[
                 User, Task, ActivityLog, Company, Attendance, Holiday, 
                 RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
-                AttendanceRegularization, SalaryStructure, Payroll,
+                AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
                 ChatGroup, ChatMessage, CachedAIInsight
             ]
         )
@@ -95,7 +95,7 @@ async def init_db():
                 document_models=[
                     User, Task, ActivityLog, Company, Attendance, Holiday, 
                     RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
-                    AttendanceRegularization, SalaryStructure, Payroll,
+                    AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
                     ChatGroup, ChatMessage, CachedAIInsight
                 ]
             )

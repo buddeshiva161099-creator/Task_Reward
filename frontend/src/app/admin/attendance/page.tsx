@@ -8,7 +8,7 @@ import {
   Search, Calendar, Filter, Users, Download, Loader2, ArrowRight, History, 
   Clock, ShieldAlert, AlertTriangle, AlertCircle, MapPin, LogIn, LogOut, ShieldCheck, Timer 
 } from 'lucide-react';
-import { cn, ensureUTC } from '@/lib/utils';
+import { cn, ensureUTC, formatDate, formatDateTime, formatTimeIST } from '@/lib/utils';
 import Link from 'next/link';
 
 interface AttendanceDayEntry {
@@ -305,10 +305,10 @@ export default function AttendanceManagementPage() {
                           </div>
                         </td>
                         <td className="px-6 py-3 text-slate-600 font-medium">
-                          {new Date(ensureUTC(log.check_in)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {formatDate(log.check_in)}
                         </td>
                         <td className="px-6 py-3 font-mono text-xs">
-                          {new Date(ensureUTC(log.check_in)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                          {formatTimeIST(log.check_in)}
                           {log.distance_from_office_in !== null && log.distance_from_office_in !== undefined && (
                             <span className={cn("block text-[9px] mt-0.5", log.distance_from_office_in > 500 ? "text-rose-500" : "text-slate-400")}>
                               {Math.round(log.distance_from_office_in)}m from office
@@ -318,7 +318,7 @@ export default function AttendanceManagementPage() {
                         <td className="px-6 py-3 font-mono text-xs">
                           {log.check_out ? (
                             <>
-                              {new Date(ensureUTC(log.check_out)).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                              {formatTimeIST(log.check_out)}
                               {log.is_auto_closed && <span className="ml-1 text-[9px] font-black text-amber-500 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-200">AUTO</span>}
                             </>
                           ) : (
@@ -386,7 +386,7 @@ export default function AttendanceManagementPage() {
                   { label: 'Total Present', value: summaries.filter(s => s.history[s.history.length-1]?.status === 'present').length, icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
                   { label: 'Total Absent', value: summaries.filter(s => s.history[s.history.length-1]?.status === 'absent').length, icon: Users, color: 'text-rose-600', bg: 'bg-rose-50' },
                   { label: 'Avg Attendance', value: `${summaries.length > 0 ? Math.round((summaries.filter(s => s.history[s.history.length-1]?.status === 'present').length / summaries.length) * 100) : 0}%`, icon: History, color: 'text-indigo-600', bg: 'bg-indigo-50' },
-                  { label: 'Flagged Today', value: flaggedLogs.filter(l => { const d = new Date(ensureUTC(l.check_in)); const t = new Date(); return d.toDateString() === t.toDateString(); }).length, icon: ShieldAlert, color: 'text-amber-600', bg: 'bg-amber-50' },
+                  { label: 'Flagged Today', value: flaggedLogs.filter(l => { const d = new Date(ensureUTC(l.check_in)).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); const t = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); return d === t; }).length, icon: ShieldAlert, color: 'text-amber-600', bg: 'bg-amber-50' },
                 ].map((stat, i) => (
                   <div key={i} className="glass rounded-2xl p-6 border border-slate-100 shadow-sm">
                     <div className="flex items-center gap-4">
@@ -482,7 +482,7 @@ export default function AttendanceManagementPage() {
                         {emp.history.map((day, idx) => (
                           <div key={idx} className="flex flex-col items-center gap-1">
                             <span className="text-[8px] font-black text-slate-400 uppercase">
-                              {new Date(ensureUTC(day.date)).toLocaleDateString('en-US', { weekday: 'short' })}
+                              {new Date(ensureUTC(day.date)).toLocaleDateString('en-IN', { weekday: 'short', timeZone: 'Asia/Kolkata' })}
                             </span>
                             <div
                               className={cn(
@@ -491,7 +491,7 @@ export default function AttendanceManagementPage() {
                                   ? 'bg-emerald-500 text-white shadow-emerald-100'
                                   : 'bg-rose-500 text-white shadow-rose-100'
                               )}
-                              title={`${day.status.toUpperCase()} — ${new Date(ensureUTC(day.date)).toLocaleDateString()}`}
+                              title={`${day.status.toUpperCase()} — ${formatDate(day.date)}`}
                             >
                               {day.status === 'present' ? 'P' : 'A'}
                             </div>
@@ -574,7 +574,7 @@ export default function AttendanceManagementPage() {
                   <div className="space-y-3">
                     <div>
                       <p className="text-xs text-muted-foreground uppercase font-bold tracking-wider">Checked in at</p>
-                      <p className="text-lg font-bold">{new Date(ensureUTC(currentSession.check_in)).toLocaleString()}</p>
+                      <p className="text-lg font-bold">{formatDateTime(currentSession.check_in)}</p>
                     </div>
                     <div className="flex items-center gap-3 p-3 rounded-xl bg-indigo-50 border border-indigo-100">
                       <Timer className="w-5 h-5 text-indigo-500 animate-pulse" />
@@ -646,12 +646,12 @@ export default function AttendanceManagementPage() {
                   <div key={log.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between gap-4">
                     <div>
                       <p className="font-bold text-slate-850">
-                        {new Date(ensureUTC(log.check_in)).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                        {new Date(ensureUTC(log.check_in)).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Kolkata' })}
                       </p>
                       <p className="text-xs text-slate-500 mt-1 flex items-center gap-4">
-                        <span>Check-in: {new Date(ensureUTC(log.check_in)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                        <span>Check-in: {formatTimeIST(log.check_in)}</span>
                         {log.check_out && (
-                          <span>Check-out: {new Date(ensureUTC(log.check_out)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span>Check-out: {formatTimeIST(log.check_out)}</span>
                         )}
                       </p>
                     </div>

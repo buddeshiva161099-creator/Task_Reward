@@ -3,6 +3,7 @@
 import { useState, useEffect, Fragment } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
+import { formatDate } from '@/lib/utils';
 import { 
   DollarSign, Settings, PlusCircle, Check, X, ShieldAlert, Sparkles, 
   FileText, Play, RefreshCw, Layers, Building2, User, Briefcase, 
@@ -53,6 +54,8 @@ interface PayrollDraft {
   incentives: number;
   bonuses: number;
   deductions: number;
+  recalculation_required?: boolean;
+  version_number?: number;
 }
 
 export default function PayrollManagementPage() {
@@ -99,6 +102,29 @@ export default function PayrollManagementPage() {
   // Active UI States
   const [expandedPayrollId, setExpandedPayrollId] = useState<string | null>(null);
   const [selectedPayslip, setSelectedPayslip] = useState<PayrollDraft | null>(null);
+
+  const [history, setHistory] = useState<any[]>([]);
+  const [viewingHistoryVersion, setViewingHistoryVersion] = useState<any | null>(null);
+
+  useEffect(() => {
+    if (selectedPayslip) {
+      api.get(`/payroll/${selectedPayslip.id}/history`)
+        .then(res => setHistory(res.data))
+        .catch(err => console.error('Error fetching payroll history:', err));
+      setViewingHistoryVersion(null);
+    } else {
+      setHistory([]);
+      setViewingHistoryVersion(null);
+    }
+  }, [selectedPayslip]);
+
+  const displayPayslip = viewingHistoryVersion
+    ? {
+        ...selectedPayslip,
+        ...viewingHistoryVersion.snapshot,
+        version_number: viewingHistoryVersion.version_number,
+      }
+    : selectedPayslip;
 
   const loadData = async () => {
     try {
@@ -265,6 +291,20 @@ export default function PayrollManagementPage() {
       loadData();
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleRecalculate = async (id: string) => {
+    try {
+      setLoading(true);
+      const res = await api.post(`/payroll/recalculate/${id}`);
+      setFeedback(res.data.message || 'Payroll recalculated successfully!');
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.detail || 'Failed to recalculate payroll.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -687,13 +727,20 @@ export default function PayrollManagementPage() {
                     <Fragment key={d.id}>
                       <tr key={d.id} className="hover:bg-slate-50/40 transition-colors">
                         <td className="py-4 px-4 font-bold text-slate-900">
-                          <button 
-                            onClick={() => setExpandedPayrollId(isExpanded ? null : d.id)}
-                            className="flex items-center gap-1.5 hover:text-indigo-600 transition-colors focus:outline-none"
-                          >
-                            <span className="text-left">{d.user_name}</span>
-                            <span className="text-[10px] text-slate-400 font-medium">({isExpanded ? 'Hide' : 'Show'})</span>
-                          </button>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button 
+                              onClick={() => setExpandedPayrollId(isExpanded ? null : d.id)}
+                              className="flex items-center gap-1.5 hover:text-indigo-600 transition-colors focus:outline-none"
+                            >
+                              <span className="text-left">{d.user_name}</span>
+                              <span className="text-[10px] text-slate-400 font-medium">({isExpanded ? 'Hide' : 'Show'})</span>
+                            </button>
+                            {d.recalculation_required && (
+                              <span className="px-1.5 py-0.5 rounded text-[8px] font-black bg-amber-100 text-amber-850 border border-amber-250 animate-pulse uppercase">
+                                Updates Pending
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-4 px-4 text-slate-500 font-bold">{d.month}</td>
                         <td className="py-4 px-3 text-right text-slate-600">₹{d.base_salary.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
@@ -713,7 +760,7 @@ export default function PayrollManagementPage() {
                           </span>
                         </td>
                         <td className="py-4 px-4 text-right">
-                          <div className="flex gap-1.5 justify-end">
+                          <div className="flex gap-1.5 justify-end items-center">
                             <button
                               onClick={() => setSelectedPayslip(d)}
                               className="text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-1.5 rounded-lg transition-colors"
@@ -721,6 +768,20 @@ export default function PayrollManagementPage() {
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
+
+                            {(user?.role === 'hr_manager' || isAdmin) && (
+                              <button
+                                onClick={() => handleRecalculate(d.id)}
+                                className={`p-1.5 rounded-lg transition-colors flex items-center justify-center ${
+                                  d.recalculation_required 
+                                    ? 'bg-amber-100 text-amber-800 hover:bg-amber-200 border border-amber-300 animate-pulse' 
+                                    : 'text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200'
+                                }`}
+                                title={d.recalculation_required ? "Changes detected! Recalculate Payroll" : "Recalculate Payroll"}
+                              >
+                                <RefreshCw className={`w-3.5 h-3.5 ${d.recalculation_required ? 'animate-spin' : ''}`} />
+                              </button>
+                            )}
                             
                             {d.status === 'draft' && (user?.role === 'hr_manager' || isAdmin) && (
                               <button
@@ -812,13 +873,13 @@ export default function PayrollManagementPage() {
       </div>
 
       {/* Payslip Modal View */}
-      {selectedPayslip && (
+      {selectedPayslip && displayPayslip && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden border border-slate-100 max-h-[90vh] flex flex-col">
             <div className="bg-indigo-900 p-6 text-white flex justify-between items-start">
               <div>
                 <h3 className="text-xl font-black">Official Salary Slip</h3>
-                <p className="text-indigo-200 text-xs mt-1">Month Cycle: {selectedPayslip.month}</p>
+                <p className="text-indigo-200 text-xs mt-1">Month Cycle: {displayPayslip.month} (v{displayPayslip.version_number || 1})</p>
               </div>
               <div className="flex gap-2">
                 <button 
@@ -838,16 +899,43 @@ export default function PayrollManagementPage() {
             </div>
 
             <div className="p-8 space-y-6 overflow-y-auto flex-grow text-xs text-slate-700">
+              {/* Version History Selector */}
+              {history.length > 0 && (
+                <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between gap-4">
+                  <span className="text-slate-500 font-bold">Previous versions available:</span>
+                  <select
+                    value={viewingHistoryVersion ? viewingHistoryVersion.version_number : 'current'}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === 'current') {
+                        setViewingHistoryVersion(null);
+                      } else {
+                        const matched = history.find(h => h.version_number === parseInt(val));
+                        setViewingHistoryVersion(matched || null);
+                      }
+                    }}
+                    className="text-xs border border-slate-200 rounded-lg p-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 font-extrabold text-slate-800"
+                  >
+                    <option value="current">v{selectedPayslip.version_number} (Current)</option>
+                    {history.map(h => (
+                      <option key={h.version_number} value={h.version_number}>
+                        v{h.version_number} (Archived {formatDate(h.created_at)})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               {/* Header Info */}
               <div className="flex justify-between items-center border-b pb-4">
                 <div>
-                  <h4 className="font-extrabold text-slate-900 text-sm">{selectedPayslip.user_name}</h4>
-                  <p className="text-slate-400">Employee ID: {selectedPayslip.user_id}</p>
+                  <h4 className="font-extrabold text-slate-900 text-sm">{displayPayslip.user_name}</h4>
+                  <p className="text-slate-400">Employee ID: {displayPayslip.user_id}</p>
                 </div>
                 <div className="text-right">
-                  <h5 className="font-black text-indigo-700 text-base">₹{selectedPayslip.net_salary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</h5>
+                  <h5 className="font-black text-indigo-700 text-base">₹{displayPayslip.net_salary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</h5>
                   <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100 uppercase tracking-wider">
-                    {selectedPayslip.status}
+                    {displayPayslip.status}
                   </span>
                 </div>
               </div>
@@ -856,19 +944,19 @@ export default function PayrollManagementPage() {
               <div className="grid grid-cols-4 gap-2 bg-slate-50 p-4 rounded-xl border border-slate-100 text-center font-bold">
                 <div>
                   <span className="block text-[9px] text-slate-400 uppercase font-extrabold">Total Work Days</span>
-                  <span className="text-slate-800 block text-sm mt-0.5">{selectedPayslip.total_working_days}d</span>
+                  <span className="text-slate-800 block text-sm mt-0.5">{displayPayslip.total_working_days}d</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-400 uppercase font-extrabold">Present Days</span>
-                  <span className="text-emerald-700 block text-sm mt-0.5">{selectedPayslip.present_days}d</span>
+                  <span className="text-emerald-700 block text-sm mt-0.5">{displayPayslip.present_days}d</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-400 uppercase font-extrabold">Paid Leaves</span>
-                  <span className="text-indigo-600 block text-sm mt-0.5">{selectedPayslip.paid_leaves}d</span>
+                  <span className="text-indigo-600 block text-sm mt-0.5">{displayPayslip.paid_leaves}d</span>
                 </div>
                 <div>
                   <span className="block text-[9px] text-slate-400 uppercase font-extrabold">LOP Absences</span>
-                  <span className="text-rose-600 block text-sm mt-0.5">{selectedPayslip.absent_days}d</span>
+                  <span className="text-rose-600 block text-sm mt-0.5">{displayPayslip.absent_days}d</span>
                 </div>
               </div>
 
@@ -881,31 +969,31 @@ export default function PayrollManagementPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span>Basic Salary:</span>
-                      <span className="font-bold">₹{selectedPayslip.basic.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.basic.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>HRA Component:</span>
-                      <span className="font-bold">₹{selectedPayslip.hra.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.hra.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Special Allowance:</span>
-                      <span className="font-bold">₹{selectedPayslip.special_allowance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.special_allowance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Overtime Pay:</span>
-                      <span className="font-bold text-emerald-700">+ ₹{selectedPayslip.overtime_pay.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold text-emerald-700">+ ₹{displayPayslip.overtime_pay.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Incentives & Bonuses:</span>
-                      <span className="font-bold text-emerald-700">+ ₹{(selectedPayslip.incentives + selectedPayslip.bonuses).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold text-emerald-700">+ ₹{(displayPayslip.incentives + displayPayslip.bonuses).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between text-rose-700 font-semibold border-t pt-1 bg-rose-50/30 px-1 rounded">
                       <span>Loss of Pay (LOP) Deduction:</span>
-                      <span>- ₹{selectedPayslip.lop_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span>- ₹{displayPayslip.lop_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between font-black border-t pt-2 text-slate-800">
                       <span>Gross Earned:</span>
-                      <span>₹{(selectedPayslip.basic + selectedPayslip.hra + selectedPayslip.special_allowance + selectedPayslip.overtime_pay + selectedPayslip.incentives + selectedPayslip.bonuses - selectedPayslip.lop_deduction).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span>₹{(displayPayslip.basic + displayPayslip.hra + displayPayslip.special_allowance + displayPayslip.overtime_pay + displayPayslip.incentives + displayPayslip.bonuses - displayPayslip.lop_deduction).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                   </div>
                 </div>
@@ -916,27 +1004,27 @@ export default function PayrollManagementPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span>Provident Fund (PF):</span>
-                      <span className="font-bold">₹{selectedPayslip.pf_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.pf_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>ESI Contribution:</span>
-                      <span className="font-bold">₹{selectedPayslip.esi_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.esi_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Professional Income Tax:</span>
-                      <span className="font-bold">₹{selectedPayslip.tax_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.tax_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Late Check-in Penalties:</span>
-                      <span className="font-bold">₹{selectedPayslip.penalties.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.penalties.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Other Manual Deductions:</span>
-                      <span className="font-bold">₹{selectedPayslip.deductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{displayPayslip.deductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between font-black border-t pt-2 text-slate-800 mt-auto">
                       <span>Total Deducted:</span>
-                      <span>₹{(selectedPayslip.pf_deduction + selectedPayslip.esi_deduction + selectedPayslip.tax_deduction + selectedPayslip.penalties + selectedPayslip.deductions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span>₹{(displayPayslip.pf_deduction + displayPayslip.esi_deduction + displayPayslip.tax_deduction + displayPayslip.penalties + displayPayslip.deductions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                   </div>
                 </div>
@@ -949,7 +1037,7 @@ export default function PayrollManagementPage() {
                   <span className="text-[10px] font-extrabold uppercase tracking-wider block text-indigo-500">Net Payable Amount</span>
                   <span className="text-xs italic text-indigo-600">Earned Gross minus Total Deductions</span>
                 </div>
-                <span className="text-xl font-black">₹{selectedPayslip.net_salary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                <span className="text-xl font-black">₹{displayPayslip.net_salary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
 
