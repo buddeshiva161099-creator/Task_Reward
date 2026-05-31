@@ -1028,39 +1028,52 @@ async def get_my_payslips_v2(current_user: User = Depends(get_current_user)):
 
     res = []
     for p in payslips:
-        gross_earnings = p.earned_salary + p.overtime_pay + p.incentives + p.bonuses
-        total_deductions = p.penalties + p.deductions + p.pf_deduction + p.esi_deduction + p.tax_deduction
+        # Safety: handle potential None values in financial fields
+        earned = p.earned_salary or 0.0
+        overtime = p.overtime_pay or 0.0
+        incentives = p.incentives or 0.0
+        bonuses = p.bonuses or 0.0
+
+        penalties = p.penalties or 0.0
+        extra_deduct = p.deductions or 0.0
+        pf = p.pf_deduction or 0.0
+        esi = p.esi_deduction or 0.0
+        tax = p.tax_deduction or 0.0
+
+        gross_earnings = earned + overtime + incentives + bonuses
+        total_deductions = penalties + extra_deduct + pf + esi + tax
+
         res.append({
             "id": str(p.id),
             "month": p.month,
-            "base_salary": p.base_salary,
+            "base_salary": p.base_salary or 0.0,
             "gross_earnings": gross_earnings,
             "total_deductions": total_deductions,
-            "net_salary": p.net_salary,
-            "overtime_pay": p.overtime_pay,
-            "incentives": p.incentives,
-            "bonuses": p.bonuses,
+            "net_salary": p.net_salary or 0.0,
+            "overtime_pay": overtime,
+            "incentives": incentives,
+            "bonuses": bonuses,
             
             # Detailed breakdown
-            "basic": p.basic,
-            "hra": p.hra,
-            "special_allowance": p.special_allowance,
-            "pf_deduction": p.pf_deduction,
-            "esi_deduction": p.esi_deduction,
-            "tax_deduction": p.tax_deduction,
-            "present_days": p.present_days,
-            "absent_days": p.absent_days,
-            "paid_leaves": p.paid_leaves,
-            "approved_regularization_days": p.approved_regularization_days,
-            "payable_days": p.payable_days,
-            "holidays_weekends": p.holidays_weekends,
-            "total_working_days": p.total_working_days,
-            "lop_deduction": p.lop_deduction,
-            "penalties": p.penalties,
-            "deductions": p.deductions,
-            "version_number": p.version_number,
+            "basic": p.basic or 0.0,
+            "hra": p.hra or 0.0,
+            "special_allowance": p.special_allowance or 0.0,
+            "pf_deduction": pf,
+            "esi_deduction": esi,
+            "tax_deduction": tax,
+            "present_days": p.present_days or 0,
+            "absent_days": p.absent_days or 0,
+            "paid_leaves": p.paid_leaves or 0,
+            "approved_regularization_days": p.approved_regularization_days or 0,
+            "payable_days": p.payable_days or 0,
+            "holidays_weekends": p.holidays_weekends or 0,
+            "total_working_days": p.total_working_days or 0,
+            "lop_deduction": p.lop_deduction or 0.0,
+            "penalties": penalties,
+            "deductions": extra_deduct,
+            "version_number": p.version_number or 1,
             
-            "status": p.status.value,
+            "status": p.status.value if hasattr(p.status, "value") else str(p.status),
             "created_at": to_utc_iso(p.created_at),
         })
     return res
