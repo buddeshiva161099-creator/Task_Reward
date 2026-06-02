@@ -198,7 +198,7 @@ export default function CompaniesPage() {
       {/* Edit Modal */}
       {showEditModal && editingCompany && (
         <div className="modal-overlay" onClick={() => setShowEditModal(false)}>
-          <div className="modal-content max-w-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content max-w-4xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-8">
               <div className="flex items-center gap-4">
                 <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-100">
@@ -288,34 +288,43 @@ export default function CompaniesPage() {
                       ))}
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Start Time</label>
-                      <input
-                        type="time"
-                        value={editingCompany.work_start_time}
-                        onChange={(e) => setEditingCompany({ ...editingCompany, work_start_time: e.target.value })}
-                        className="input h-12 font-bold"
-                      />
+                      <div className="relative">
+                        <input
+                          type="time"
+                          value={editingCompany.work_start_time}
+                          onChange={(e) => setEditingCompany({ ...editingCompany, work_start_time: e.target.value })}
+                          className="input h-12 font-bold pr-10"
+                        />
+                        <Clock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                      </div>
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">End Time</label>
-                      <input
-                        type="time"
-                        value={editingCompany.work_end_time}
-                        onChange={(e) => setEditingCompany({ ...editingCompany, work_end_time: e.target.value })}
-                        className="input h-12 font-bold"
-                      />
+                      <div className="relative">
+                        <input
+                          type="time"
+                          value={editingCompany.work_end_time}
+                          onChange={(e) => setEditingCompany({ ...editingCompany, work_end_time: e.target.value })}
+                          className="input h-12 font-bold pr-10"
+                        />
+                        <Clock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                      </div>
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-500 mb-2 uppercase tracking-wider">Cut-out Time (Grace)</label>
-                    <input
-                      type="time"
-                      value={editingCompany.cut_out_time || '10:00'}
-                      onChange={(e) => setEditingCompany({ ...editingCompany, cut_out_time: e.target.value })}
-                      className="input h-12 font-bold text-rose-500"
-                    />
+                    <div className="relative">
+                      <input
+                        type="time"
+                        value={editingCompany.cut_out_time || '10:00'}
+                        onChange={(e) => setEditingCompany({ ...editingCompany, cut_out_time: e.target.value })}
+                        className="input h-12 font-bold text-rose-500 pr-10"
+                      />
+                      <Clock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-rose-400 pointer-events-none" />
+                    </div>
                   </div>
                 </div>
               </div>

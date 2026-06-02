@@ -153,8 +153,9 @@ export default function AttendanceToggle() {
                 <div className="w-16 h-16 rounded-full bg-emerald-50 flex items-center justify-center mb-4">
                   <CheckCircle2 className="w-8 h-8 text-emerald-500" />
                 </div>
-                <h3 className="text-xl font-bold text-slate-900">Successfully {isCheckedIn ? 'Punched Out' : 'Punched In'}</h3>
-                <p className="text-slate-500 mt-2 text-sm">Have a great {isCheckedIn ? 'rest of your day' : 'productive day'}!</p>
+                {/* Note: currentSession is updated AFTER the API call, but we use the state at the start of the action to determine text */}
+                <h3 className="text-xl font-bold text-slate-900">Successfully {!isCheckedIn ? 'Punched In' : 'Punched Out'}</h3>
+                <p className="text-slate-500 mt-2 text-sm">Have a great {!isCheckedIn ? 'productive day' : 'rest of your day'}!</p>
               </>
             )}
 

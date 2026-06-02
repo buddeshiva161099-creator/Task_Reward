@@ -1,6 +1,6 @@
-# Employee Task & Reward Management System
+# TaskReward Workforce Operations Suite
 
-A modern full-stack web application for managing employees, assigning tasks, tracking productivity, and rewarding employees for timely task completion.
+A comprehensive workforce operations platform for SMEs that connects tasks, attendance, leave, payroll, rewards, and analytics into one trustworthy operational system.
 
 ## 🚀 Tech Stack
 

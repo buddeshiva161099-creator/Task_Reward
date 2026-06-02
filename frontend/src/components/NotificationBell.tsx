@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 import { Bell, Check, Trash2, Clock, CheckCircle2, ClipboardList, Info, X, MessageSquare } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -16,10 +17,12 @@ interface Notification {
 }
 
 export default function NotificationBell() {
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -33,9 +36,49 @@ export default function NotificationBell() {
 
   useEffect(() => {
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 10000); // Poll every 10s
-    return () => clearInterval(interval);
-  }, [fetchNotifications]);
+
+    if (user?.id) {
+      const connectWS = () => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = process.env.NEXT_PUBLIC_WS_URL || (typeof window !== 'undefined' ? `${window.location.hostname}:8000` : 'localhost:8000');
+        const token = localStorage.getItem('token');
+        const wsUrl = `${protocol}//${host}/notifications/ws/${user.id}${token ? `?token=${token}` : ''}`;
+        const ws = new WebSocket(wsUrl);
+
+        ws.onmessage = (event) => {
+          const message = JSON.parse(event.data);
+          if (message.type === 'notification') {
+            // Re-fetch to keep state consistent and simple,
+            // or we could manually prepend message.data
+            fetchNotifications();
+
+            // Show desktop notification if browser permits
+            if (Notification.permission === 'granted') {
+              new Notification(message.data.title, { body: message.data.message });
+            }
+          }
+        };
+
+        ws.onclose = () => {
+          // Reconnect after 3 seconds
+          setTimeout(connectWS, 3000);
+        };
+
+        wsRef.current = ws;
+      };
+
+      connectWS();
+
+      // Request permission for desktop notifications
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+
+    return () => {
+      wsRef.current?.close();
+    };
+  }, [user?.id, fetchNotifications]);
 
   const markAsRead = async (id: string) => {
     try {

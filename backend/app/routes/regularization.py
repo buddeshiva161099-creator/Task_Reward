@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.models.user import User, UserRole
 from app.models.regularization import AttendanceRegularization, RegularizationStatus
 from app.models.attendance import Attendance
 from app.models.activity_log import ActivityLog
-from app.models.notification import Notification
+from app.services.audit_service import AuditService
+from app.services.notification_service import NotificationService
 from app.utils.ist_time import to_utc_iso
 from app.auth.dependencies import get_current_user, require_hr_team, require_any_hr_manager, require_management_team, require_admin
 from pydantic import BaseModel
@@ -33,6 +34,7 @@ class RegularizationActionRequest(BaseModel):
 @router.post("/apply", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def request_regularization(
     request: RegularizationApplyRequest,
+    http_request: Request,
     current_user: User = Depends(get_current_user)
 ):
     """Employee submits a new attendance correction/regularization request."""
@@ -102,34 +104,23 @@ async def request_regularization(
     )
     await regularization.insert()
 
+    await AuditService.log_event(
+        actor=current_user,
+        entity_type="regularization",
+        entity_id=regularization.id,
+        action="applied",
+        after_state=regularization.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     # Create notification for managers and HR team
-    recipient_ids = set()
-    if current_user.reporting_manager_id:
-        recipient_ids.add(current_user.reporting_manager_id)
-    if current_user.hr_reporting_manager_id:
-        recipient_ids.add(current_user.hr_reporting_manager_id)
-
-    # Also notify all active HR team members (Admin, HR Manager, Assistant HR Manager)
-    hr_users = await User.find(
-        In(User.role, [UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER]),
-        User.is_active == True,
-        User.is_deleted == False
-    ).to_list()
-    for hr in hr_users:
-        recipient_ids.add(hr.id)
-
-    # Remove applicant from recipient list to avoid self-notifying
-    recipient_ids.discard(current_user.id)
-
-    # Insert notifications
-    for recipient_id in recipient_ids:
-        await Notification(
-            user_id=recipient_id,
-            sender_id=current_user.id,
-            title="New Attendance Regularization Request",
-            message=f"{current_user.name} has submitted an attendance regularization request for reason: {request.reason}.",
-            type="system"
-        ).insert()
+    await NotificationService.notify_management_for_user(
+        user=current_user,
+        title="New Attendance Regularization Request",
+        message=f"{current_user.name} has submitted an attendance regularization request for reason: {request.reason}.",
+        type="system"
+    )
 
     return {"message": "Attendance correction request submitted successfully", "id": str(regularization.id)}
 
@@ -228,6 +219,7 @@ async def get_all_regularizations(user: User = Depends(require_management_team))
 async def verify_regularization(
     id: str,
     action: RegularizationActionRequest,
+    http_request: Request,
     hr_user: User = Depends(require_management_team)
 ):
     """Verify request."""
@@ -244,6 +236,7 @@ async def verify_regularization(
             detail="You can only manage regularization requests for employees under your hierarchy."
         )
 
+    before_state = req.model_dump()
     if req.status not in [RegularizationStatus.PENDING]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -256,14 +249,25 @@ async def verify_regularization(
     req.comments = action.comments
     await req.save()
 
+    await AuditService.log_event(
+        actor=hr_user,
+        entity_type="regularization",
+        entity_id=req.id,
+        action="verified",
+        before_state=before_state,
+        after_state=req.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     # Notify applicant
-    await Notification(
+    await NotificationService.notify_user(
         user_id=req.user_id,
         sender_id=hr_user.id,
         title="Attendance Regularization Request Verified",
         message=f"Your attendance regularization request has been verified by {hr_user.name} and is awaiting final Admin approval.",
         type="system"
-    ).insert()
+    )
 
     # Notify Admin and HR Managers
     recipient_ids = set()
@@ -282,14 +286,13 @@ async def verify_regularization(
 
     recipient_ids.discard(hr_user.id)
 
-    for recipient_id in recipient_ids:
-        await Notification(
-            user_id=recipient_id,
-            sender_id=hr_user.id,
-            title="Regularization Request Verified - Awaiting Approval",
-            message=f"Attendance regularization request for {req.user_name} has been verified by {hr_user.name} and is awaiting final approval.",
-            type="system"
-        ).insert()
+    await NotificationService.notify_users(
+        user_ids=list(recipient_ids),
+        sender_id=hr_user.id,
+        title="Regularization Request Verified - Awaiting Approval",
+        message=f"Attendance regularization request for {req.user_name} has been verified by {hr_user.name} and is awaiting final approval.",
+        type="system"
+    )
 
     # Audit log for verification
     log = ActivityLog(
@@ -307,6 +310,7 @@ async def verify_regularization(
 async def review_regularization(
     id: str,
     action: RegularizationActionRequest,
+    http_request: Request,
     hr_mgr: User = Depends(require_management_team)
 ):
     """Review request."""
@@ -314,6 +318,7 @@ async def review_regularization(
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
+    before_state = req.model_dump()
     from app.routes.employees import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_mgr)
     if visible_ids is not None and req.user_id not in visible_ids:
@@ -328,14 +333,25 @@ async def review_regularization(
     req.comments = action.comments
     await req.save()
 
+    await AuditService.log_event(
+        actor=hr_mgr,
+        entity_type="regularization",
+        entity_id=req.id,
+        action="reviewed",
+        before_state=before_state,
+        after_state=req.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     # Notify applicant
-    await Notification(
+    await NotificationService.notify_user(
         user_id=req.user_id,
         sender_id=hr_mgr.id,
         title="Attendance Regularization Reviewed",
         message=f"Your attendance regularization request has been reviewed by {hr_mgr.name} and is pending final approval.",
         type="system"
-    ).insert()
+    )
 
     # Audit log for review
     log = ActivityLog(
@@ -353,6 +369,7 @@ async def review_regularization(
 async def approve_regularization(
     id: str,
     action: RegularizationActionRequest,
+    http_request: Request,
     admin: User = Depends(require_management_team)
 ):
     """Final Approval and update matching attendance log."""
@@ -368,6 +385,7 @@ async def approve_regularization(
             detail="You can only manage regularization requests for employees under your hierarchy."
         )
 
+    before_state = req.model_dump()
     if req.status in [RegularizationStatus.APPROVED, RegularizationStatus.REJECTED]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request already finalized")
 
@@ -422,6 +440,17 @@ async def approve_regularization(
     req.comments = action.comments
     await req.save()
 
+    await AuditService.log_event(
+        actor=admin,
+        entity_type="regularization",
+        entity_id=req.id,
+        action="approved",
+        before_state=before_state,
+        after_state=req.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
     # Generate Audit Log
     log = ActivityLog(
         user_id=admin.id,
@@ -432,13 +461,13 @@ async def approve_regularization(
     await log.insert()
 
     # Notify applicant
-    await Notification(
+    await NotificationService.notify_user(
         user_id=req.user_id,
         sender_id=admin.id,
         title="Attendance Regularization Approved",
         message=f"Your attendance regularization request has been approved by {admin.name}. Your attendance log has been successfully updated.",
         type="system"
-    ).insert()
+    )
 
     # Notify applicant's managers
     recipient_ids = set()
@@ -451,28 +480,45 @@ async def approve_regularization(
 
     recipient_ids.discard(admin.id)
 
-    for recipient_id in recipient_ids:
-        await Notification(
-            user_id=recipient_id,
-            sender_id=admin.id,
-            title="Attendance Regularization Approved",
-            message=f"Attendance regularization request for {req.user_name} has been approved.",
-            type="system"
-        ).insert()
+    await NotificationService.notify_users(
+        user_ids=list(recipient_ids),
+        sender_id=admin.id,
+        title="Attendance Regularization Approved",
+        message=f"Attendance regularization request for {req.user_name} has been approved.",
+        type="system"
+    )
 
     # Trigger payroll recalculation logic if necessary
     from app.models.payroll import Payroll, PayrollStatus
     from app.routes.payroll import calculate_corporate_payroll
     from app.models.attendance import IST
+    from app.services.payroll_impact_service import PayrollImpactService
+
     month_str = attendance.check_in.astimezone(IST).strftime("%Y-%m")
     try:
+        # Record Impact
+        await PayrollImpactService.record_impact(
+            user=applicant,
+            month=month_str,
+            source_event_type="regularization_approval",
+            source_event_id=req.id
+        )
+
         payrolls = await Payroll.find(Payroll.user_id == req.user_id, Payroll.month == month_str).to_list()
         for p in payrolls:
-            if p.status == PayrollStatus.DRAFT:
+            if p.status in [PayrollStatus.DRAFT, PayrollStatus.UNDER_REVIEW]:
                 await calculate_corporate_payroll(employee=applicant, month=month_str)
             else:
                 p.recalculation_required = True
                 await p.save()
+
+                # Notify payroll operator/admin about impact on locked payroll
+                await NotificationService.notify_users(
+                    user_ids=list(recipient_ids),
+                    title="Action Required: Locked Payroll Impacted",
+                    message=f"Approved regularization for {req.user_name} impacts a LOCKED payroll period ({month_str}). Manual recalculation or unlock may be required.",
+                    type="system"
+                )
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"Could not automatically recalculate payroll on regularization approval: {e}")
@@ -484,6 +530,7 @@ async def approve_regularization(
 async def reject_regularization(
     id: str,
     action: RegularizationActionRequest,
+    http_request: Request,
     hr_user: User = Depends(require_management_team)
 ):
     """Reject regularization request."""
@@ -499,6 +546,7 @@ async def reject_regularization(
             detail="You can only manage regularization requests for employees under your hierarchy."
         )
 
+    before_state = req.model_dump()
     if req.status in [RegularizationStatus.APPROVED, RegularizationStatus.REJECTED]:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request already finalized")
 
@@ -507,6 +555,17 @@ async def reject_regularization(
     req.approved_by_name = hr_user.name
     req.comments = action.comments
     await req.save()
+
+    await AuditService.log_event(
+        actor=hr_user,
+        entity_type="regularization",
+        entity_id=req.id,
+        action="rejected",
+        before_state=before_state,
+        after_state=req.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
 
     # Audit log for rejection
     log = ActivityLog(
@@ -518,13 +577,13 @@ async def reject_regularization(
     await log.insert()
 
     # Notify applicant
-    await Notification(
+    await NotificationService.notify_user(
         user_id=req.user_id,
         sender_id=hr_user.id,
         title="Attendance Regularization Rejected",
         message=f"Your attendance regularization request has been rejected. Comments: {action.comments or 'None'}",
         type="system"
-    ).insert()
+    )
 
     # Notify applicant's managers
     recipient_ids = set()
@@ -537,13 +596,12 @@ async def reject_regularization(
 
     recipient_ids.discard(hr_user.id)
 
-    for recipient_id in recipient_ids:
-        await Notification(
-            user_id=recipient_id,
-            sender_id=hr_user.id,
-            title="Attendance Regularization Rejected",
-            message=f"Attendance regularization request for {req.user_name} has been rejected.",
-            type="system"
-        ).insert()
+    await NotificationService.notify_users(
+        user_ids=list(recipient_ids),
+        sender_id=hr_user.id,
+        title="Attendance Regularization Rejected",
+        message=f"Attendance regularization request for {req.user_name} has been rejected.",
+        type="system"
+    )
 
     return {"message": "Attendance regularization request has been rejected.", "performed_by": hr_user.role.value}

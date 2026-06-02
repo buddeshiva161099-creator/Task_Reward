@@ -187,7 +187,7 @@ export default function AdminTasksPage() {
 
   const fetchTasks = useCallback(async () => {
     try {
-      const res = await api.get('/tasks');
+      const res = await api.get('/tasks', { params: { all_tasks: true } });
       setTasks(res.data);
     } catch (err) {
       console.error('Failed to fetch tasks:', err);

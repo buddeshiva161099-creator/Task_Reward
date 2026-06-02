@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, WebSocket, WebSocketDisconnect
 from app.auth.dependencies import get_current_user
 from app.models.user import User
 from app.models.notification import Notification
+from app.services.websocket_service import manager
 from app.schemas.notification import NotificationResponse, NotificationList
 from beanie import PydanticObjectId
 from typing import List
@@ -74,3 +75,29 @@ async def delete_notification(
         
     await notification.delete()
     return None
+
+@router.websocket("/ws/{user_id}")
+async def websocket_endpoint(websocket: WebSocket, user_id: str, token: str = None):
+    """
+    WebSocket endpoint for real-time notifications.
+    Optionally validates token if provided to ensure user is subscribing to their own stream.
+    """
+    if token:
+        from app.auth.jwt_handler import decode_access_token
+        payload = decode_access_token(token)
+        if payload:
+            sub = payload.get("sub")
+            if sub and sub != user_id:
+                # Security: trying to subscribe to another user's stream
+                await websocket.accept()
+                await websocket.send_json({"type": "error", "message": "Unauthorized stream access"})
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+                return
+
+    await manager.connect(websocket, user_id)
+    try:
+        while True:
+            # Keep the connection open
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, user_id)

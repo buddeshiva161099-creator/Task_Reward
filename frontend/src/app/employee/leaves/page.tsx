@@ -46,8 +46,11 @@ export default function EmployeeLeavesPage() {
       ]);
       setBalances(balRes.data);
       setRequests(reqRes.data);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      // Don't show noise for 400s that are handled in the form
+      if (err.response?.status !== 400) {
+        console.error('Failed to load leave data:', err);
+      }
     } finally {
       setLoading(false);
     }
@@ -65,6 +68,7 @@ export default function EmployeeLeavesPage() {
 
     try {
       setSubmitting(true);
+      setSuccessMsg('');
       await api.post('/leaves/apply', {
         leave_type: leaveType,
         start_date: startDate,
@@ -77,8 +81,9 @@ export default function EmployeeLeavesPage() {
       setReason('');
       loadData();
     } catch (err: any) {
-      console.error(err);
-      alert(err.response?.data?.detail || 'Failed to submit leave request');
+      // Catch and show clear error instead of generic noise
+      const detail = err.response?.data?.detail || 'Failed to submit leave request';
+      alert(`Leave Application Error: ${detail}`);
     } finally {
       setSubmitting(false);
     }

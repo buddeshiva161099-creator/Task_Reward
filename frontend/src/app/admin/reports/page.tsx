@@ -91,9 +91,10 @@ export default function ReportsPage() {
           alert('Popup blocked. Please allow popups to view the printable PDF report.');
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('AI Report download failed:', err);
-      alert('Failed to generate AI report.');
+      const detail = err.response?.data?.detail || 'Failed to generate AI report.';
+      alert(`AI Intelligence Error: ${detail}`);
     } finally {
       setDownloading('');
     }
