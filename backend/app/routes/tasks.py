@@ -8,7 +8,7 @@ from app.auth.dependencies import get_current_user
 from app.models.user import User, UserRole
 from app.models.company import Company
 from beanie import PydanticObjectId
-from beanie.operators import In
+from beanie.operators import In, Or
 from typing import List, Optional
 from app.models.category import Category
 
@@ -232,18 +232,19 @@ async def list_tasks(
                 is_admin=True,
             )
         elif current_user.role in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER]:
-            all_tasks = await task_service.get_tasks(
-                user_id=None,
-                status=status_filter,
-                priority=priority,
-                is_admin=True,
-            )
-            # Filter in memory using visible_ids
-            tasks = [
-                t for t in all_tasks
-                if PydanticObjectId(t.assigned_to) in visible_ids
-                or PydanticObjectId(t.created_by) == current_user.id
-            ]
+            # Optimization: Move hierarchy and ownership filtering to database level
+            query = {}
+            if status_filter: query["status"] = status_filter
+            if priority: query["priority"] = priority
+
+            # (assigned to someone in hierarchy) OR (created by me)
+            tasks = await Task.find(
+                Or(
+                    In(Task.assigned_to, list(visible_ids)),
+                    Task.created_by == current_user.id
+                ),
+                query
+            ).sort("-created_at").to_list()
         else:
             # HR_MANAGER, ASSISTANT_HR_MANAGER, and EMPLOYEE all see only
             # tasks that are assigned to themselves.
