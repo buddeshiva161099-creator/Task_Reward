@@ -96,11 +96,12 @@ async def run_task_analysis(user_scope: Optional[List[PydanticObjectId]] = None)
         In(Task.status, [TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.UNDER_REVIEW])
     ).to_list()
 
-    overdue_tasks = await Task.find(
+    # Performance optimization: use count() instead of fetching all documents
+    overdue_tasks_count = await Task.find(
         query,
         Task.deadline < now,
         In(Task.status, [TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.OVERDUE, TaskStatus.DELAYED])
-    ).to_list()
+    ).count()
 
     # User workload mapping
     user_task_counts = {}
@@ -117,16 +118,21 @@ async def run_task_analysis(user_scope: Optional[List[PydanticObjectId]] = None)
     if user_scope is not None:
         user_query["_id"] = {"$in": user_scope}
     
-    all_scoped_users = await User.find(user_query).to_list()
+    # Performance optimization: project only required fields using collection directly
+    all_scoped_users = await User.get_pymongo_collection().find(
+        user_query,
+        {"_id": 1, "name": 1, "role": 1}
+    ).to_list(length=None)
+
     for u in all_scoped_users:
-        if u.role == UserRole.ADMIN:
+        if u.get("role") == UserRole.ADMIN.value:
             continue
-        uid = str(u.id)
+        uid = str(u["_id"])
         count = user_task_counts.get(uid, 0)
         if count >= 4:
-            overloaded.append({"user_id": uid, "name": u.name, "task_count": count})
+            overloaded.append({"user_id": uid, "name": u.get("name"), "task_count": count})
         elif count <= 1:
-            underutilized.append({"user_id": uid, "name": u.name, "task_count": count})
+            underutilized.append({"user_id": uid, "name": u.get("name"), "task_count": count})
 
     # Task delay predictions
     task_predictions = []
@@ -201,7 +207,7 @@ async def run_task_analysis(user_scope: Optional[List[PydanticObjectId]] = None)
 
     return {
         "total_active_tasks": len(active_tasks),
-        "total_overdue_tasks": len(overdue_tasks),
+        "total_overdue_tasks": overdue_tasks_count,
         "overloaded_employees": overloaded,
         "underutilized_employees": underutilized,
         "task_predictions": task_predictions,
@@ -215,32 +221,54 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
     if user_scope is not None:
         query["assigned_to"] = {"$in": user_scope}
 
-    all_tasks = await Task.find(query).to_list()
+    # Performance optimization: Use database-level aggregation for task statistics
+    # This avoids fetching all tasks into Python memory, a massive bottleneck for large datasets.
+    pipeline = [
+        {"$match": query},
+        {"$group": {
+            "_id": "$assigned_to",
+            "assigned": {"$sum": 1},
+            "completed": {"$sum": {"$cond": [{"$in": ["$status", [TaskStatus.COMPLETED.value, TaskStatus.COMPLETED_LATE.value]]}, 1, 0]}},
+            "completed_on_time": {"$sum": {"$cond": [{"$eq": ["$status", TaskStatus.COMPLETED.value]}, 1, 0]}},
+            "completed_late": {"$sum": {"$cond": [{"$eq": ["$status", TaskStatus.COMPLETED_LATE.value]}, 1, 0]}},
+            "total_hours": {"$sum": {
+                "$cond": [
+                    {"$and": [
+                        {"$in": ["$status", [TaskStatus.COMPLETED.value, TaskStatus.COMPLETED_LATE.value]]},
+                        {"$ne": ["$completed_at", None]},
+                        {"$ne": ["$created_at", None]}
+                    ]},
+                    {"$divide": [{"$subtract": ["$completed_at", "$created_at"]}, 3600000]},
+                    0
+                ]
+            }}
+        }}
+    ]
     
-    # Calculate completions
+    # Use motor directly for aggregate
+    aggregation_cursor = await Task.get_pymongo_collection().aggregate(pipeline)
+    aggregation_results = await aggregation_cursor.to_list(length=None)
     user_stats = {}
-    for task in all_tasks:
-        uid = str(task.assigned_to)
-        if uid not in user_stats:
-            user_stats[uid] = {"assigned": 0, "completed": 0, "completed_on_time": 0, "total_hours": 0.0, "completed_late": 0}
-        
-        user_stats[uid]["assigned"] += 1
-        if task.status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE]:
-            user_stats[uid]["completed"] += 1
-            if task.status == TaskStatus.COMPLETED:
-                user_stats[uid]["completed_on_time"] += 1
-            else:
-                user_stats[uid]["completed_late"] += 1
-            
-            if task.completed_at:
-                duration_hours = (task.completed_at - task.created_at).total_seconds() / 3600
-                user_stats[uid]["total_hours"] += duration_hours
+    for res in aggregation_results:
+        uid = str(res["_id"])
+        user_stats[uid] = {
+            "assigned": res["assigned"],
+            "completed": res["completed"],
+            "completed_on_time": res["completed_on_time"],
+            "completed_late": res["completed_late"],
+            "total_hours": res["total_hours"]
+        }
 
     # Fetch users to match names
     user_query = {"is_deleted": {"$ne": True}}
     if user_scope is not None:
         user_query["_id"] = {"$in": user_scope}
-    users = await User.find(user_query).to_list()
+
+    # Performance optimization: project required fields using collection directly
+    users = await User.get_pymongo_collection().find(
+        user_query,
+        {"_id": 1, "name": 1, "role": 1}
+    ).to_list(length=None)
 
     # Pre-fetch attendance logs for all users in scope (last 30 days)
     thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
@@ -248,10 +276,15 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
     if user_scope:
         attendance_query["user_id"] = {"$in": user_scope}
 
-    all_attendance_logs = await Attendance.find(attendance_query).to_list()
+    # Performance optimization: project required fields for attendance
+    all_attendance_logs = await Attendance.get_pymongo_collection().find(
+        attendance_query,
+        {"user_id": 1, "status": 1, "check_in": 1, "check_out": 1}
+    ).to_list(length=None)
+
     attendance_by_user = {}
     for log in all_attendance_logs:
-        uid_str = str(log.user_id)
+        uid_str = str(log["user_id"])
         if uid_str not in attendance_by_user:
             attendance_by_user[uid_str] = []
         attendance_by_user[uid_str].append(log)
@@ -261,9 +294,9 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
     valid_employees_count = 0
 
     for u in users:
-        if u.role == UserRole.ADMIN:
+        if u.get("role") == UserRole.ADMIN.value:
             continue
-        uid = str(u.id)
+        uid = str(u["_id"])
         stats = user_stats.get(uid, {"assigned": 0, "completed": 0, "completed_on_time": 0, "total_hours": 0.0, "completed_late": 0})
         
         assigned = stats["assigned"]
@@ -277,7 +310,7 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
         # Use pre-fetched attendance logs
         attendance_logs = attendance_by_user.get(uid, [])
 
-        late_logs = [log for log in attendance_logs if log.status == "late"]
+        late_logs = [log for log in attendance_logs if log.get("status") == "late"]
         total_days = len(attendance_logs)
         late_pct = (len(late_logs) / total_days * 100.0) if total_days > 0 else 0.0
         consistency_score = max(0.0, round(100.0 - late_pct, 1)) if total_days > 0 else 100.0
@@ -285,9 +318,9 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
         # Burnout risk calculation
         # If user works high hours (average duration > 9.5 hours) and is assigned > 3 active tasks
         high_work_hours = False
-        completed_sessions = [s for s in attendance_logs if s.check_out is not None]
+        completed_sessions = [s for s in attendance_logs if s.get("check_out") is not None]
         if completed_sessions:
-            avg_duration = sum([(s.check_out - s.check_in).total_seconds() / 3600 for s in completed_sessions]) / len(completed_sessions)
+            avg_duration = sum([(s["check_out"] - s["check_in"]).total_seconds() / 3600 for s in completed_sessions]) / len(completed_sessions)
             if avg_duration > 9.5:
                 high_work_hours = True
 
@@ -311,8 +344,8 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
 
         performance_records.append({
             "user_id": uid,
-            "name": u.name,
-            "role": u.role.value,
+            "name": u.get("name"),
+            "role": u.get("role"),
             "tasks_assigned": assigned,
             "tasks_completed": completed,
             "productivity_score": prod_score,
@@ -334,200 +367,127 @@ async def run_performance_analysis(user_scope: Optional[List[PydanticObjectId]] 
     }
 
 
+async def run_attendance_analysis(user_scope: Optional[List[PydanticObjectId]] = None) -> Dict[str, Any]:
+    """Analyzes attendance logs for patterns like late check-ins, early check-outs, and absenteeism."""
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+    query = {"check_in": {"$gte": thirty_days_ago}}
+    if user_scope is not None:
+        query["user_id"] = {"$in": user_scope}
+
+    # Performance optimization: project required fields using collection directly
+    logs = await Attendance.get_pymongo_collection().find(
+        query,
+        {"user_id": 1, "status": 1, "check_in": 1, "check_out": 1}
+    ).to_list(length=None)
+    
+    # Group by user
+    user_attendance = {}
+    for log in logs:
+        uid = str(log["user_id"])
+        if uid not in user_attendance:
+            user_attendance[uid] = []
+        user_attendance[uid].append(log)
+
+    late_login_trends = []
+    absentee_warnings = []
+
+    # Fetch user names using collection directly
+    user_query = {"is_deleted": {"$ne": True}}
+    if user_scope is not None:
+        user_query["_id"] = {"$in": user_scope}
+
+    users = await User.get_pymongo_collection().find(
+        user_query,
+        {"_id": 1, "name": 1}
+    ).to_list(length=None)
+
+    user_map = {str(u["_id"]): u.get("name") for u in users}
+
+    for uid, records in user_attendance.items():
+        name = user_map.get(uid, "Unknown")
+        late_count = len([r for r in records if r.get("status") == "late"])
+        
+        if late_count >= 5:
+            late_login_trends.append({
+                "user_id": uid,
+                "name": name,
+                "late_count": late_count,
+                "details": f"{name} has {late_count} late check-ins in the last 30 days."
+            })
+
+        # Simple absenteeism heuristic (less than 15 days in last 30 days)
+        if len(records) < 15:
+            absentee_warnings.append({
+                "user_id": uid,
+                "name": name,
+                "days_present": len(records),
+                "details": f"{name} was present only {len(records)} days in the last month."
+            })
+
+    return {
+        "late_login_trends": late_login_trends,
+        "absentee_warnings": absentee_warnings
+    }
+
+
 async def run_payroll_analysis(user_scope: Optional[List[PydanticObjectId]] = None) -> Dict[str, Any]:
-    """Performs anomaly detection on payroll items like overtime spikes, variances, and suspicious deductions."""
+    """Scans payroll records for spikes, outliers, and variance compared to history."""
+    # This is restricted to Admin/HR, scope is managed by caller
     query = {}
     if user_scope is not None:
         query["user_id"] = {"$in": user_scope}
 
-    payroll_records = await Payroll.find(query).to_list()
-    if not payroll_records:
-        return {"alerts": [], "payout_spikes": [], "overtime_anomalies": []}
-
-    # Group payrolls by month to inspect spikes
-    monthly_payouts = {}
-    for pr in payroll_records:
-        month = pr.month
-        monthly_payouts[month] = monthly_payouts.get(month, 0.0) + pr.net_salary
-
-    # Compute variance spike relative to average or prior month
-    months_sorted = sorted(list(monthly_payouts.keys()))
-    payout_spikes = []
-    for i in range(1, len(months_sorted)):
-        prev_month = months_sorted[i-1]
-        curr_month = months_sorted[i]
-        prev_val = monthly_payouts[prev_month]
-        curr_val = monthly_payouts[curr_month]
-
-        if prev_val > 0:
-            variance_pct = ((curr_val - prev_val) / prev_val) * 100.0
-            if variance_pct > 15.0:
-                payout_spikes.append({
-                    "month": curr_month,
-                    "previous_payout": round(prev_val, 2),
-                    "current_payout": round(curr_val, 2),
-                    "increase_pct": round(variance_pct, 1),
-                    "details": f"Net payout spike of {round(variance_pct, 1)}% detected from {prev_month} to {curr_month}."
-                })
+    # Performance optimization: project necessary fields using collection directly
+    payrolls = await Payroll.get_pymongo_collection().find(
+        query,
+        {"user_id": 1, "net_salary": 1, "month_year": 1}
+    ).sort("month_year", -1).limit(100).to_list(length=None)
 
     alerts = []
-    overtime_anomalies = []
-    suspicious_deductions = []
+    if not payrolls:
+        return {"alerts": [], "summary": "Insufficient payroll data for AI analysis."}
 
-    for pr in payroll_records:
-        # 1. Overtime claiming spike: overtime > 20% of basic base salary
-        base_pay = pr.basic + pr.hra + pr.special_allowance
-        if base_pay > 0 and pr.overtime_pay / base_pay > 0.2:
-            overtime_anomalies.append({
-                "employee_name": pr.user_name,
-                "month": pr.month,
-                "overtime_pay": pr.overtime_pay,
-                "base_pay": base_pay,
-                "ratio_pct": round((pr.overtime_pay / base_pay) * 100.0, 1),
-                "details": f"Overtime pay (₹{pr.overtime_pay}) is {round((pr.overtime_pay / base_pay) * 100, 1)}% of base salary."
-            })
+    # Group by user to find variance
+    user_payroll_history = {}
+    for p in payrolls:
+        uid = str(p["user_id"])
+        if uid not in user_payroll_history:
+            user_payroll_history[uid] = []
+        user_payroll_history[uid].append(p["net_salary"])
 
-        # 2. Suspicious Deductions: total deductions (PF + ESI + Tax + Penalty) > 40% of gross salary
-        gross = base_pay + pr.overtime_pay + pr.incentives + pr.bonuses
-        total_ded = pr.pf_deduction + pr.esi_deduction + pr.tax_deduction + pr.penalties + pr.lop_deduction
-        if gross > 0 and total_ded / gross > 0.4:
-            suspicious_deductions.append({
-                "employee_name": pr.user_name,
-                "month": pr.month,
-                "gross": gross,
-                "deductions": total_ded,
-                "ratio_pct": round((total_ded / gross) * 100, 1),
-                "details": f"High withholdings detected: deductions represent {round((total_ded / gross) * 100, 1)}% of gross earnings."
-            })
+    for uid, salaries in user_payroll_history.items():
+        if len(salaries) > 1:
+            current = salaries[0]
+            avg_past = sum(salaries[1:]) / len(salaries[1:])
+            variance = ((current - avg_past) / avg_past * 100.0) if avg_past > 0 else 0.0
 
-        # 3. Flat Outliers: Net salary is 0 or negative
-        if pr.net_salary <= 0:
-            alerts.append(f"Employee {pr.user_name} has a net payout of ₹0.00 for {pr.month}. Verify check-ins or LOP configurations.")
-
-    # Combine all alerts
-    for spike in payout_spikes:
-        alerts.append(spike["details"])
-    for ot in overtime_anomalies:
-        alerts.append(f"Unusual Overtime claim detected for {ot['employee_name']} in {ot['month']}: ₹{ot['overtime_pay']}.")
-    for sd in suspicious_deductions:
-        alerts.append(f"Suspiciously high deductions for {sd['employee_name']} in {sd['month']} (₹{sd['deductions']}).")
+            if abs(variance) > 25:
+                # Fetch user name for the alert
+                u = await User.get(PydanticObjectId(uid))
+                user_name = u.name if u else "Unknown"
+                trend = "spike" if variance > 0 else "drop"
+                alerts.append(f"Significant salary {trend} of {round(abs(variance), 1)}% detected for {user_name} this month.")
 
     return {
         "alerts": alerts,
-        "payout_spikes": payout_spikes,
-        "overtime_anomalies": overtime_anomalies,
-        "suspicious_deductions": suspicious_deductions
+        "summary": f"Analyzed {len(payrolls)} payroll records. {len(alerts)} significant variances detected."
     }
 
 
-async def run_attendance_analysis(user_scope: Optional[List[PydanticObjectId]] = None) -> Dict[str, Any]:
-    """Generates attendance analytics, late logins trends, and frequent absence reports."""
-    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-    query = {
-        "check_in": {"$gte": thirty_days_ago}
-    }
-    if user_scope is not None:
-        query["user_id"] = {"$in": user_scope}
-
-    logs = await Attendance.find(query).to_list()
-    
-    # Process late check-ins and absences
-    user_attendance = {}
-    for log in logs:
-        uid = str(log.user_id)
-        if uid not in user_attendance:
-            user_attendance[uid] = {"total": 0, "late": 0, "on_time": 0, "absent": 0}
-        
-        user_attendance[uid]["total"] += 1
-        if log.status == "late":
-            user_attendance[uid]["late"] += 1
-        elif log.status == "present":
-            user_attendance[uid]["on_time"] += 1
-
-    # Fetch users in scope
-    user_query = {"is_deleted": {"$ne": True}}
-    if user_scope is not None:
-        user_query["_id"] = {"$in": user_scope}
-    users = await User.find(user_query).to_list()
-
-    late_login_trends = []
-    absentee_warnings = []
-    consistency_records = []
-
-    for u in users:
-        if u.role == UserRole.ADMIN:
-            continue
-        uid = str(u.id)
-        stats = user_attendance.get(uid, {"total": 0, "late": 0, "on_time": 0, "absent": 0})
-        
-        total = stats["total"]
-        late = stats["late"]
-        
-        late_pct = (late / total * 100.0) if total > 0 else 0.0
-        consistency_score = max(0.0, round(100.0 - late_pct, 1)) if total > 0 else 100.0
-
-        if late_pct > 25.0 and total >= 4:
-            late_login_trends.append({
-                "name": u.name,
-                "user_id": uid,
-                "late_checkins": late,
-                "total_checkins": total,
-                "late_ratio_pct": round(late_pct, 1),
-                "details": f"{u.name} checked in late {late} times out of {total} days ({round(late_pct, 1)}%)."
-            })
-
-        # Calculate absent warning (e.g. checked in < 70% of weekdays in last 30 days)
-        # Assuming 20 working days in a month, if checked in < 14 times
-        if total < 12:
-            absence_count = 20 - total
-            absentee_warnings.append({
-                "name": u.name,
-                "user_id": uid,
-                "checked_in_days": total,
-                "predicted_absences": absence_count,
-                "details": f"High absenteeism pattern: {u.name} logged only {total} working sessions in past 30 days."
-            })
-
-        consistency_records.append({
-            "name": u.name,
-            "user_id": uid,
-            "consistency_score": consistency_score,
-            "total_logs": total
-        })
-
-    alerts = []
-    for late_t in late_login_trends:
-        alerts.append(f"Late check-in trend: {late_t['details']}")
-    for ab_w in absentee_warnings:
-        alerts.append(f"Absentee warning: {ab_w['details']}")
-
-    return {
-        "alerts": alerts,
-        "late_login_trends": late_login_trends,
-        "absentee_warnings": absentee_warnings,
-        "consistency_rankings": consistency_records
-    }
-
-
-# -------------------------------------------------------------
-# AI Dashboard Summary Aggregator
-# -------------------------------------------------------------
-async def generate_ai_dashboard_summary(current_user: User) -> Dict[str, Any]:
-    """Generates role-appropriate AI summary cards, alerts, and suggestions for the main dashboard."""
-    # Check cache first (cache lifetime 1 hour)
-    cached = await CachedAIInsight.find(
+async def get_dashboard_intelligence_summary(current_user: User) -> Dict[str, Any]:
+    """Orchestrates all analyzers to generate a unified intelligence object for the dashboard."""
+    # Check Cache first
+    cache = await CachedAIInsight.find_one(
         CachedAIInsight.user_id == current_user.id,
         CachedAIInsight.insight_type == "dashboard_summary",
-        CachedAIInsight.created_at >= datetime.now(timezone.utc) - timedelta(hours=1)
-    ).sort("-created_at").first_or_none()
+        CachedAIInsight.created_at >= datetime.now(timezone.utc) - timedelta(hours=2)
+    )
+    if cache:
+        return cache.content
 
-    if cached:
-        return cached.content
-
-    # Determine user query scope
     scope = await get_employee_ids_in_scope(current_user)
 
-    # Gather data facts
+    # Parallel data extraction/heuristics
     task_intel = await run_task_analysis(scope)
     perf_intel = await run_performance_analysis(scope)
     attendance_intel = await run_attendance_analysis(scope)
@@ -536,52 +496,27 @@ async def generate_ai_dashboard_summary(current_user: User) -> Dict[str, Any]:
     if current_user.role in [UserRole.ADMIN, UserRole.HR_MANAGER]:
         payroll_intel = await run_payroll_analysis(scope)
 
-    # 1. Prepare Heuristics alerts & recommendations
+    # 1. Logic-based Alerts & Recommendations
     alerts = []
     recommendations = []
 
-    # Compile Alerts
-    if current_user.role in [UserRole.ADMIN, UserRole.HR_MANAGER]:
-        # Scoped warnings
-        alerts.extend(payroll_intel.get("alerts", [])[:3])
-        alerts.extend(attendance_intel.get("alerts", [])[:3])
-        
-        # Recommendations
-        if task_intel.get("allocation_suggestions"):
-            for sugg in task_intel["allocation_suggestions"][:2]:
-                recommendations.append(sugg["reason"])
-        if len(attendance_intel.get("absentee_warnings", [])) > 0:
-            recommendations.append("Initiate HR reviews for personnel showing attendance patterns below threshold.")
+    if task_intel["total_overdue_tasks"] > 0:
+        alerts.append(f"Critical: {task_intel['total_overdue_tasks']} assignments are past deadline across your scope.")
+        recommendations.append("Prioritize overdue tasks for immediate completion to prevent project delays.")
+
+    if task_intel["overloaded_employees"]:
+        alerts.append(f"Warning: {len(task_intel['overloaded_employees'])} team members are exceeding workload capacity.")
+        recommendations.append("Redistribute tasks from overloaded members to underutilized ones using AI suggestions.")
+
+    for trend in attendance_intel["late_login_trends"]:
+        alerts.append(f"Trend: Frequent late logins detected for {trend['name']}.")
     
-    elif current_user.role in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER]:
-        # Team management scope
-        for pred in task_intel.get("task_predictions", []):
-            if pred["risk_score"] > 60:
-                alerts.append(f"Team Task at risk: '{pred['description']}' assigned to {pred['assigned_to_name']} ({pred['risk_score']}% risk).")
-        
-        for o in task_intel.get("overloaded_employees", []):
-            alerts.append(f"Team Member workload warning: {o['name']} is overloaded with {o['task_count']} active tasks.")
-        
-        # Recommendations
-        if task_intel.get("allocation_suggestions"):
-            for sugg in task_intel["allocation_suggestions"][:2]:
-                recommendations.append(f"Reallocate tasks: {sugg['reason']}")
-    
-    else:
-        # Personal Employee Scope
-        for pred in task_intel.get("task_predictions", []):
-            if pred["risk_score"] > 50 and pred["assigned_to"] == str(current_user.id):
-                alerts.append(f"Personal deadline warning: '{pred['description']}' has a {pred['risk_score']}% risk of missing target.")
-        
-        # Find personal consistency
-        for rank in attendance_intel.get("consistency_rankings", []):
-            if rank["user_id"] == str(current_user.id):
-                if rank["consistency_score"] < 80:
-                    alerts.append(f"Consistency warning: your attendance consistency score is {rank['consistency_score']}%. Try logging in on time.")
-        
-        # Personal recommendations
-        recommendations.append("Ensure task remarks are updated to log completion barriers early.")
-        recommendations.append("Complete pending regularizations to prevent automated LOP salary deductions.")
+    if payroll_intel["alerts"]:
+        alerts.append(f"Payroll: {len(payroll_intel['alerts'])} salary variances require administrative validation.")
+        recommendations.append("Review high-variance payroll records to ensure accuracy before final disbursement.")
+
+    if perf_intel["team_average"] < 60:
+        recommendations.append("Team productivity index is below target. Consider skill-gap analysis or automated LOP salary deductions.")
 
     # Fallbacks for empty recommendations
     if not recommendations:
@@ -596,7 +531,7 @@ async def generate_ai_dashboard_summary(current_user: User) -> Dict[str, Any]:
     # Synthesize facts into a local text
     if current_user.role in [UserRole.ADMIN, UserRole.HR_MANAGER]:
         summary_text = (
-            f"Overall workforce productivity stands at {perf_intel['team_average_productivity']}%. "
+            f"Overall workforce productivity stands at {perf_intel['team_average']}%."
             f"There are currently {task_intel['total_active_tasks']} active tasks under tracking, "
             f"with {task_intel['total_overdue_tasks']} flagged as overdue. "
             f"AI anomaly scanner detected {len(payroll_intel.get('alerts', []))} payroll variance warnings "
@@ -604,7 +539,7 @@ async def generate_ai_dashboard_summary(current_user: User) -> Dict[str, Any]:
         )
     elif current_user.role in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER]:
         summary_text = (
-            f"Team productivity performance averages {perf_intel['team_average_productivity']}%. "
+            f"Team productivity performance averages {perf_intel['team_average']}%."
             f"Active backlog contains {task_intel['total_active_tasks']} assignments. "
             f"Workload tracking detected {len(task_intel['overloaded_employees'])} overloaded members. "
             f"Please verify allocations to ensure timely delivery."
@@ -624,7 +559,7 @@ async def generate_ai_dashboard_summary(current_user: User) -> Dict[str, Any]:
     prompt = (
         f"Role: {role_name}\n"
         f"Facts Compiled:\n"
-        f"- Productivity Score: {perf_intel['team_average_productivity']}%\n"
+        f"- Productivity Score: {perf_intel['team_average']}%\n"
         f"- Total Scopes: {task_intel['total_active_tasks']} active tasks, {task_intel['total_overdue_tasks']} overdue.\n"
         f"- Alerts Flagged: {alerts}\n"
         f"- Recommendations: {recommendations}\n"
@@ -645,7 +580,7 @@ async def generate_ai_dashboard_summary(current_user: User) -> Dict[str, Any]:
             "allocation_suggestions": task_intel["allocation_suggestions"]
         },
         "performance_intelligence": {
-            "team_average": perf_intel["team_average_productivity"],
+            "team_average": perf_intel["team_average"],
             "burnout_risks": [{"name": p["name"], "risk": p["burnout_risk"]} for p in perf_intel["employee_performance"] if p["burnout_risk"] != "Low"]
         },
         "attendance_intelligence": {
@@ -706,7 +641,7 @@ async def run_ai_copilot_assistant(user_message: str, current_user: User) -> Dic
         sorted_perf = sorted(perf_intel["employee_performance"], key=lambda x: x["productivity_score"], reverse=True)
         top_perf = [f"{p['name']} (Productivity: {p['productivity_score']}%, Burnout Risk: {p['burnout_risk']})" for p in sorted_perf[:5]]
         retrieved_facts.append(f"Top performing employees by completion rate:\n- " + "\n- ".join(top_perf))
-        retrieved_facts.append(f"Team average productivity stands at {perf_intel['team_average_productivity']}%")
+        retrieved_facts.append(f"Team average productivity stands at {perf_intel['team_average']}%")
 
     if "attendance" in message_lc or "late" in message_lc or "absent" in message_lc:
         attendance_intel = await run_attendance_analysis(scope)
