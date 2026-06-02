@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
 import { Clock, PlusCircle, CheckCircle2, RefreshCw } from 'lucide-react';
+import { TableSkeleton } from '@/components/SkeletonLoaders';
 
 interface RegularizationRequest {
   id: string;
@@ -161,9 +162,7 @@ export default function EmployeeRegularizationPage() {
           </div>
 
           {loading ? (
-            <div className="flex justify-center items-center py-12">
-              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            </div>
+            <TableSkeleton cols={4} rows={5} />
           ) : requests.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-sm">
               No correction logs registered yet.

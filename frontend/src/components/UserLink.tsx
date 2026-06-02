@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { Mail, Trophy, ClipboardList, CheckCircle2, Clock, Play, AlertCircle, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+import { Skeleton } from './Skeleton';
 
 interface EmployeeStats {
   user: {
@@ -91,9 +92,22 @@ export default function UserLink({
         ${isAbove ? 'bottom-full mb-4 origin-bottom-left' : 'top-full mt-3 origin-top-left'}
       `}>
         {loading && !stats ? (
-          <div className="p-10 flex flex-col items-center justify-center gap-3">
-            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Loading stats...</p>
+          <div className="p-8 space-y-6">
+            <div className="flex items-center gap-4">
+              <Skeleton className="w-14 h-14 rounded-2xl" />
+              <div className="space-y-2 flex-1">
+                <Skeleton className="h-5 w-1/2" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => (
+                  <Skeleton key={i} className="h-4 w-full" />
+                ))}
+              </div>
+              <Skeleton className="h-32 rounded-3xl" />
+            </div>
           </div>
         ) : stats ? (
           <div className="flex flex-col">

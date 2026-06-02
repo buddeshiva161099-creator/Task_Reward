@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { cn } from '@/lib/utils';
+import { DashboardSkeleton } from '@/components/SkeletonLoaders';
 
 // ─── Enriched Calendar Summary Types and Helpers ─────────────────────────────
 interface CalendarSummary {
@@ -531,11 +532,7 @@ function EmployeeProfileContent() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!employee) {
@@ -2204,11 +2201,7 @@ function StatRow({ label, value, color }: { label: string; value: number; color:
 
 export default function EmployeeProfilePage() {
   return (
-    <Suspense fallback={
-      <div className="flex items-center justify-center h-screen">
-        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    }>
+    <Suspense fallback={<DashboardSkeleton />}>
       <EmployeeProfileContent />
     </Suspense>
   );

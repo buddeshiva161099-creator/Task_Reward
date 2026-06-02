@@ -10,6 +10,7 @@ import {
   Loader2, Download, Image as ImageIcon, FileText, CheckCheck, Eye
 } from 'lucide-react';
 import Link from 'next/link';
+import { Skeleton } from './Skeleton';
 
 interface ChatUser {
   id: string;
@@ -716,8 +717,16 @@ export default function ChatContainer() {
             <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/10">
               
               {loadingHistory ? (
-                <div className="flex items-center justify-center h-full">
-                  <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+                <div className="space-y-4">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className={`flex gap-3 max-w-[70%] ${i % 2 === 0 ? 'ml-auto flex-row-reverse' : ''}`}>
+                      <Skeleton className="w-7 h-7 rounded-full flex-shrink-0" />
+                      <div className="space-y-1 flex-1">
+                        <Skeleton className={`h-10 rounded-2xl ${i % 2 === 0 ? 'rounded-tr-none' : 'rounded-tl-none'}`} />
+                        <Skeleton className={`h-3 w-16 ${i % 2 === 0 ? 'ml-auto' : ''}`} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <>

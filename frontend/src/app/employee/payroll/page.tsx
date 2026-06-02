@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { DollarSign, FileText, CheckCircle2, RefreshCw, Printer, AlertCircle, Calendar } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
+import { ListSkeleton, DashboardSkeleton } from '@/components/SkeletonLoaders';
 
 interface Payslip {
   id: string;
@@ -110,9 +111,7 @@ export default function EmployeePayrollPage() {
           </div>
 
           {loading ? (
-            <div className="flex justify-center items-center py-12">
-              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            </div>
+            <ListSkeleton count={5} />
           ) : payslips.length === 0 ? (
             <div className="text-slate-400 text-sm text-center py-12 font-medium">
               No payroll releases recorded yet for this fiscal cycle.
@@ -142,7 +141,31 @@ export default function EmployeePayrollPage() {
 
         {/* Right column: Selected Payslip High-Fi Preview */}
         <div className="lg:col-span-2">
-          {selectedSlip && displaySlip ? (
+          {loading ? (
+            <div className="bg-white border border-slate-150 rounded-2xl p-8 shadow-sm space-y-8 animate-pulse">
+              <div className="flex justify-between items-start border-b border-slate-100 pb-6">
+                <div className="space-y-3 flex-1">
+                  <div className="h-2 bg-slate-100 rounded w-24" />
+                  <div className="h-8 bg-slate-100 rounded w-64" />
+                  <div className="h-3 bg-slate-50 rounded w-40" />
+                </div>
+                <div className="h-12 bg-slate-100 rounded-xl w-32" />
+              </div>
+              <div className="grid grid-cols-5 gap-3">
+                {[1, 2, 3, 4, 5].map(i => <div key={i} className="h-12 bg-slate-50 rounded-xl" />)}
+              </div>
+              <div className="grid grid-cols-2 gap-8">
+                <div className="space-y-4">
+                  <div className="h-4 bg-slate-100 rounded w-32" />
+                  {[1, 2, 3, 4].map(i => <div key={i} className="h-4 bg-slate-50 rounded" />)}
+                </div>
+                <div className="space-y-4">
+                  <div className="h-4 bg-slate-100 rounded w-32" />
+                  {[1, 2, 3, 4].map(i => <div key={i} className="h-4 bg-slate-50 rounded" />)}
+                </div>
+              </div>
+            </div>
+          ) : selectedSlip && displaySlip ? (
             <div className="bg-white border border-slate-150 rounded-2xl p-8 shadow-sm space-y-6">
               
               {/* Header */}

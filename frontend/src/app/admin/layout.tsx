@@ -15,6 +15,7 @@ import NotificationBell from '@/components/NotificationBell';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
 import { Key } from 'lucide-react';
 import AIAssistant from '@/components/AIAssistant';
+import { Skeleton } from '@/components/Skeleton';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading, isAdmin, isHR, isManager, isAssistantManager, isHRTeam, isTaskTeam, logout } = useAuth();
@@ -49,8 +50,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   if (isLoading || !user) {
     return (
-      <div className="gradient-bg min-h-screen flex items-center justify-center">
-        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      <div className="flex h-screen bg-slate-50">
+        <Skeleton className="w-64 h-full rounded-none" />
+        <div className="flex-1 flex flex-col">
+          <Skeleton className="h-16 w-full rounded-none" />
+          <div className="p-8 space-y-6">
+            <Skeleton className="h-12 w-1/4" />
+            <div className="grid grid-cols-4 gap-6">
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-32 rounded-2xl" />)}
+            </div>
+            <Skeleton className="h-96 w-full rounded-2xl" />
+          </div>
+        </div>
       </div>
     );
   }

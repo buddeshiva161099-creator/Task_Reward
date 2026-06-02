@@ -9,6 +9,7 @@ import {
   Clock, ShieldAlert, AlertTriangle, AlertCircle, MapPin, LogIn, LogOut, ShieldCheck, Timer 
 } from 'lucide-react';
 import { cn, ensureUTC, formatDate, formatDateTime, formatTimeIST } from '@/lib/utils';
+import { DashboardSkeleton, ListSkeleton } from '@/components/SkeletonLoaders';
 import Link from 'next/link';
 
 interface AttendanceDayEntry {
@@ -376,8 +377,21 @@ export default function AttendanceManagementPage() {
 
           {/* Stats Summary */}
           {loading ? (
-            <div className="flex items-center justify-center h-48">
-              <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="glass rounded-2xl p-6 border border-slate-100 shadow-sm h-24 animate-pulse">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl bg-slate-100" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-6 bg-slate-100 rounded w-1/2" />
+                        <div className="h-3 bg-slate-50 rounded w-3/4" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <ListSkeleton count={5} />
             </div>
           ) : (
             <>
@@ -637,9 +651,7 @@ export default function AttendanceManagementPage() {
               </h2>
             </div>
             {personalLoading ? (
-              <div className="flex items-center justify-center h-48">
-                <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-              </div>
+              <ListSkeleton count={5} />
             ) : (
               <div className="divide-y divide-slate-100">
                 {personalHistory.map((log) => (

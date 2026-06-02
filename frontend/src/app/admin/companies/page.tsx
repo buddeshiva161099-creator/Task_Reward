@@ -7,6 +7,7 @@ import { cn, formatDate } from '@/lib/utils';
 import {
   Building2, Plus, Search, X, Power, PowerOff, FileText, Calendar, Clock, Loader2, Save, Shield, MapPin, Timer
 } from 'lucide-react';
+import { CardSkeleton } from '@/components/SkeletonLoaders';
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -111,8 +112,10 @@ export default function CompaniesPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {[...Array(6)].map((_, i) => (
+          <CardSkeleton key={i} />
+        ))}
       </div>
     );
   }

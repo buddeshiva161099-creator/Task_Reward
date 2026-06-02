@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, User, Building2, ClipboardList, X, Command, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
+import { Skeleton } from './Skeleton';
 
 interface SearchResult {
   id: string;
@@ -161,7 +162,19 @@ export default function GlobalSearch() {
                   <p className="text-sm font-medium text-slate-900">Global Omni-Search</p>
                   <p className="text-xs text-slate-500 mt-1">Start typing to find anything instantly.</p>
                 </div>
-              ) : !loading && !hasResults ? (
+              ) : loading ? (
+                <div className="space-y-4 p-4">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="flex items-center gap-3">
+                      <Skeleton className="w-9 h-9 rounded-full" />
+                      <div className="space-y-2 flex-1">
+                        <Skeleton className="h-4 w-1/3" />
+                        <Skeleton className="h-3 w-1/4" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : !hasResults ? (
                 <div className="p-12 text-center text-slate-500">
                   <Search className="w-8 h-8 mx-auto mb-3 opacity-20" />
                   <p className="text-sm">No results found for &quot;{query}&quot;</p>

@@ -5,6 +5,7 @@ import api from '@/lib/api';
 import { Attendance } from '@/types';
 import { MapPin, LogIn, LogOut, Loader2, CheckCircle2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from './Skeleton';
 
 export default function AttendanceToggle() {
   const [currentSession, setCurrentSession] = useState<Attendance | null>(null);
@@ -105,7 +106,9 @@ export default function AttendanceToggle() {
     }
   };
 
-  if (loading) return null;
+  if (loading) {
+    return <Skeleton className="h-9 w-28 rounded-xl" />;
+  }
 
   const isCheckedIn = !!currentSession;
 

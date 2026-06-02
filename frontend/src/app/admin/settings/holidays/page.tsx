@@ -5,6 +5,7 @@ import api from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Calendar, Plus, Trash2, Loader2, X, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn, formatDate } from '@/lib/utils';
+import { Skeleton } from '@/components/Skeleton';
 
 interface Holiday {
   id: string;
@@ -96,11 +97,14 @@ export default function HolidaysSettingsPage() {
             </thead>
             <tbody className="divide-y divide-slate-50">
               {loading ? (
-                <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center">
-                    <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mx-auto" />
-                  </td>
-                </tr>
+                [...Array(5)].map((_, i) => (
+                  <tr key={i}>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-8" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-48" /></td>
+                    <td className="px-6 py-4"><Skeleton className="h-4 w-32" /></td>
+                    <td className="px-6 py-4 text-right"><Skeleton className="h-8 w-8 ml-auto" /></td>
+                  </tr>
+                ))
               ) : holidays.length === 0 ? (
                 <tr>
                   <td colSpan={4} className="px-6 py-12 text-center text-slate-400 text-sm font-medium">

@@ -9,6 +9,7 @@ import {
   Search, CheckCircle2, AlertCircle, CalendarDays, UserCheck, UserX,
   PlusCircle, RefreshCw
 } from 'lucide-react';
+import { TableSkeleton, CardSkeleton } from '@/components/SkeletonLoaders';
 
 interface LeaveRequest {
   id: string;
@@ -314,9 +315,7 @@ export default function LeavesManagementPage() {
           </div>
 
           {loading ? (
-            <div className="flex justify-center items-center py-12">
-              <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            </div>
+            <TableSkeleton cols={5} rows={8} />
           ) : filteredRequests.length === 0 ? (
             <div className="bg-white border border-slate-100 rounded-2xl p-12 text-center shadow-sm">
               <Calendar className="w-12 h-12 text-slate-300 mx-auto mb-3" />
@@ -474,8 +473,10 @@ export default function LeavesManagementPage() {
           )}
 
           {myLoading ? (
-            <div className="flex justify-center items-center py-6">
-              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {[...Array(3)].map((_, i) => (
+                <CardSkeleton key={i} />
+              ))}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -580,9 +581,7 @@ export default function LeavesManagementPage() {
               </div>
 
               {myLoading ? (
-                <div className="flex justify-center items-center py-12">
-                  <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-                </div>
+                <TableSkeleton cols={4} rows={5} />
               ) : myRequests.length === 0 ? (
                 <div className="text-center py-12 text-slate-400 text-sm">
                   No leave requests registered. Apply using the form to start.

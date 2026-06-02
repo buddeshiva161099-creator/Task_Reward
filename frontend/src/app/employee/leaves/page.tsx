@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { Calendar, PlusCircle, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
+import { CardSkeleton, TableSkeleton } from '@/components/SkeletonLoaders';
 
 interface LeaveBalance {
   id: string;
@@ -100,8 +101,10 @@ export default function EmployeeLeavesPage() {
 
       {/* Grid of Leave Balances */}
       {loading ? (
-        <div className="flex justify-center items-center py-6">
-          <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[...Array(3)].map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -206,9 +209,7 @@ export default function EmployeeLeavesPage() {
           </div>
 
           {loading ? (
-            <div className="flex justify-center items-center py-12">
-              <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            </div>
+            <TableSkeleton cols={4} rows={5} />
           ) : requests.length === 0 ? (
             <div className="text-center py-12 text-slate-400 text-sm">
               No leave requests registered. Apply using the form to start.

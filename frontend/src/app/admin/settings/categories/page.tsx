@@ -6,6 +6,7 @@ import { Category } from '@/types';
 import {
   Tag, Plus, X, Pencil, Trash2, Loader2, CheckCircle2, Palette
 } from 'lucide-react';
+import { CardSkeleton } from '@/components/SkeletonLoaders';
 
 const PRESET_COLORS = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316',
@@ -91,8 +92,10 @@ export default function CategoriesSettingsPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {[...Array(6)].map((_, i) => (
+          <CardSkeleton key={i} />
+        ))}
       </div>
     );
   }

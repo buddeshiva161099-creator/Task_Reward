@@ -8,6 +8,7 @@ import {
   Trash2, RefreshCw, Loader2, AlertTriangle, Users, ShieldAlert, ArrowLeft, Check, X
 } from 'lucide-react';
 import Link from 'next/link';
+import { TableSkeleton } from '@/components/SkeletonLoaders';
 
 export default function DeletedEmployeesPage() {
   const [deletedEmployees, setDeletedEmployees] = useState<Employee[]>([]);
@@ -98,11 +99,7 @@ export default function DeletedEmployeesPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
-      </div>
-    );
+    return <TableSkeleton cols={4} rows={6} />;
   }
 
   return (

@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Company } from '@/types';
 import { Save, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { DashboardSkeleton } from '@/components/SkeletonLoaders';
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
@@ -171,11 +172,7 @@ export default function RulesSettingsPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   return (

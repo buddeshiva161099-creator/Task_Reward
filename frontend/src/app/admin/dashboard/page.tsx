@@ -13,13 +13,15 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import AIInsightPanel from '@/components/AIInsightPanel';
+import { DashboardSkeleton, CardSkeleton } from '@/components/SkeletonLoaders';
+import { Skeleton } from '@/components/Skeleton';
 
 const DashboardCharts = dynamic(() => import('@/components/DashboardCharts'), {
   ssr: false,
   loading: () => (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="glass rounded-xl p-6 h-[400px] animate-pulse bg-slate-50/50" />
+        <Skeleton key={i} className="h-[400px]" />
       ))}
     </div>
   )
@@ -87,11 +89,7 @@ export default function AdminDashboard() {
   };
 
   if (loading && !stats) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!stats) {
@@ -286,7 +284,7 @@ export default function AdminDashboard() {
                     <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${card.color} flex items-center justify-center mb-3 shadow-md`}>
                       <Users className="w-5 h-5 text-white" />
                     </div>
-                    <p className="text-3xl font-extrabold text-slate-800 tracking-tight">{card.stats.total}</p>
+                    <p className="text-3xl font-extrabold text-slate-800 tracking-tight">{card.stats.total ?? <Skeleton className="h-8 w-12 inline-block" />}</p>
                   </div>
 
                   <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100/50 text-[10px] font-bold">

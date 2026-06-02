@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
 import { Brain, Sparkles, AlertTriangle, TrendingUp, Compass, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Skeleton } from './Skeleton';
 
 export default function AIInsightPanel() {
   const { user } = useAuth();
@@ -32,18 +33,10 @@ export default function AIInsightPanel() {
 
   if (loading) {
     return (
-      <div className="glass rounded-2xl p-6 border border-slate-100/80 shadow-sm relative overflow-hidden animate-pulse mb-8">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center">
-            <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />
-          </div>
-          <div className="h-4 bg-slate-200 rounded w-48" />
-        </div>
-        <div className="space-y-2">
-          <div className="h-3 bg-slate-100 rounded w-full" />
-          <div className="h-3 bg-slate-100 rounded w-5/6" />
-          <div className="h-3 bg-slate-100 rounded w-4/5" />
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        <Skeleton className="lg:col-span-2 h-48 rounded-2xl" />
+        <Skeleton className="h-48 rounded-2xl" />
+        <Skeleton className="lg:col-span-3 h-24 rounded-2xl" />
       </div>
     );
   }

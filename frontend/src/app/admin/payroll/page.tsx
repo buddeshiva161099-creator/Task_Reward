@@ -9,6 +9,7 @@ import {
   FileText, Play, RefreshCw, Layers, Building2, User, Briefcase, 
   AlertTriangle, CheckCircle, Eye, Printer, ArrowRight
 } from 'lucide-react';
+import { TableSkeleton, DashboardSkeleton } from '@/components/SkeletonLoaders';
 
 interface Employee {
   id: string;
@@ -694,9 +695,7 @@ export default function PayrollManagementPage() {
         </div>
 
         {loading ? (
-          <div className="flex justify-center items-center py-12">
-            <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          </div>
+          <TableSkeleton cols={9} rows={8} />
         ) : drafts.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-sm">
             No active payroll runs found. Use the Batch Payroll Console to trigger calculated drafts.

@@ -9,6 +9,7 @@ import {
   Search, ChevronDown, Check, RefreshCcw, Tag
 } from 'lucide-react';
 import { cn, formatDateTime, getStatusColor, getStatusLabel, getPriorityColor, timeAgo, formatPreciseDateTime } from '@/lib/utils';
+import { CardSkeleton } from '@/components/SkeletonLoaders';
 
 interface MultiSelectProps {
   label: string;
@@ -252,8 +253,10 @@ export default function EmployeeTasksPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
+      <div className="space-y-4">
+        {[...Array(6)].map((_, i) => (
+          <CardSkeleton key={i} />
+        ))}
       </div>
     );
   }

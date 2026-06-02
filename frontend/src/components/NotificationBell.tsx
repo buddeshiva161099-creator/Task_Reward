@@ -5,6 +5,7 @@ import api from '@/lib/api';
 import { Bell, Check, Trash2, Clock, CheckCircle2, ClipboardList, Info, X, MessageSquare } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { Skeleton } from './Skeleton';
 
 interface Notification {
   id: string;
@@ -21,19 +22,22 @@ export default function NotificationBell() {
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const fetchNotifications = useCallback(async () => {
+  const fetchNotifications = useCallback(async (isInitial = false) => {
+    if (isInitial) setLoading(true);
     try {
       const response = await api.get('/notifications');
       setNotifications(response.data.items);
       setUnreadCount(response.data.unread_count);
     } catch (error) {
       console.error('Failed to fetch notifications:', error);
+    } finally {
+      if (isInitial) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 10000); // Poll every 10s
+    fetchNotifications(true);
+    const interval = setInterval(() => fetchNotifications(false), 10000); // Poll every 10s
     return () => clearInterval(interval);
   }, [fetchNotifications]);
 
@@ -145,7 +149,22 @@ export default function NotificationBell() {
 
             {/* Content */}
             <div className="max-h-[400px] overflow-y-auto bg-white/30 backdrop-blur-sm">
-              {notifications.length === 0 ? (
+              {loading ? (
+                <div className="divide-y divide-slate-50">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div key={i} className="p-4 flex gap-4">
+                      <Skeleton className="w-10 h-10 rounded-xl shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-4 w-1/2 rounded" />
+                          <Skeleton className="h-3 w-12 rounded" />
+                        </div>
+                        <Skeleton className="h-3 w-3/4 rounded" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : notifications.length === 0 ? (
                 <div className="py-12 px-6 text-center">
                   <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto mb-4">
                     <Bell className="w-6 h-6 text-slate-300" />

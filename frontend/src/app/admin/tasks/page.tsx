@@ -11,6 +11,7 @@ import {
   MessageSquarePlus, Building2, Send, ChevronUp, Search, Pencil, Eye,
   RefreshCcw, CalendarDays, Users2, Building, ChevronDown, Check, Tag
 } from 'lucide-react';
+import { TableSkeleton } from '@/components/SkeletonLoaders';
 
 interface MultiSelectProps {
   label: string;
@@ -406,11 +407,7 @@ export default function AdminTasksPage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <TableSkeleton cols={9} rows={10} />;
   }
 
   return (

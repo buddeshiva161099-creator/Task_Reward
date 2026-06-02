@@ -10,6 +10,7 @@ import {
   Users, Plus, Search, UserCheck, UserX, Trophy, X, Mail, Lock, User, Eye, EyeOff, Shield, Briefcase, Loader2, UserPlus, Phone, PhoneCall, Trash2, Edit2, Check, Copy, ArrowRight, ArrowLeft, Calendar, MapPin, Layers, Wallet
 } from 'lucide-react';
 import Link from 'next/link';
+import { TableSkeleton } from '@/components/SkeletonLoaders';
 
 export default function EmployeesPage() {
   const { user, isHRTeam, isAdmin, isManager, isAssistantManager } = useAuth();
@@ -351,11 +352,7 @@ HR Operations & Management`;
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <TableSkeleton cols={6} rows={8} />;
   }
 
   return (

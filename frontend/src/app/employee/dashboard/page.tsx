@@ -10,6 +10,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import EmptyState from '@/components/EmptyState';
 import AIInsightPanel from '@/components/AIInsightPanel';
+import { DashboardSkeleton } from '@/components/SkeletonLoaders';
 
 interface PerfMetrics {
   assigned_tasks: number;
@@ -63,11 +64,7 @@ export default function EmployeeDashboardPage() {
   };
 
   if (loading && !data) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (!data) {

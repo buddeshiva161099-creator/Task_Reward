@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import api from '@/lib/api';
 import { LeaderboardEntry } from '@/types';
 import { Trophy, Star, Crown, Medal, Award, TrendingUp } from 'lucide-react';
+import { ListSkeleton } from '@/components/SkeletonLoaders';
 
 export default function LeaderboardPage() {
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
@@ -24,11 +25,7 @@ export default function LeaderboardPage() {
   }, []);
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <ListSkeleton count={10} />;
   }
 
   const getRankIcon = (index: number) => {

@@ -9,6 +9,7 @@ import {
   Loader2, ShieldAlert, ShieldCheck, Timer, RefreshCw, Sun, Umbrella, Star
 } from 'lucide-react';
 import { formatDateTime, formatPreciseDateTime, formatDate, cn, ensureUTC } from '@/lib/utils';
+import { DashboardSkeleton } from '@/components/SkeletonLoaders';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -374,11 +375,7 @@ export default function AttendancePage() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-10 h-10 text-indigo-500 animate-spin" />
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   const unifiedRows = buildUnifiedRows(calendarSummary, history);
