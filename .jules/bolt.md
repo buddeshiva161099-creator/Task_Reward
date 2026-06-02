@@ -8,3 +8,11 @@
 ## 2026-06-01 - In-memory RBAC Filtering Anti-pattern
 **Learning:** Several core visibility functions (like `get_visible_employee_ids`) were fetching the entire User collection into memory and filtering in Python. This causes severe performance degradation as the user base grows.
 **Action:** Replace in-memory filtering with database-level operations. Use `Model.distinct("_id", query)` to efficiently retrieve just the necessary IDs for visibility sets.
+
+## 2026-06-01 - Aggregation-based Task Statistics
+**Learning:** Calculating task completion rates and durations in memory by fetching all tasks is extremely slow and memory-intensive for even moderate datasets (~1.3s for 1000 tasks).
+**Action:** Use MongoDB aggregation pipelines with $group and $cond to compute statistics like 'assigned', 'completed', and 'total_hours' at the database level. This reduced execution time by ~27% in my benchmark and will scale much better.
+
+## 2026-06-01 - Collection Direct Access for Projections
+**Learning:** Beanie 2.1.0 sometimes struggles with dictionary-based projections when using .project() on its find() queries, leading to Pydantic configuration errors.
+**Action:** Use `Model.get_pymongo_collection().find(query, projection)` to bypass Beanie's projection model layer when only a few fields are needed as dictionaries. This is faster and more reliable for internal analytical logic.
