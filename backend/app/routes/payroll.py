@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.models.user import User, UserRole
 from app.models.payroll import Payroll, SalaryStructure, PayrollStatus
 from app.models.activity_log import ActivityLog
+from app.services.audit_service import AuditService
+from app.services.notification_service import NotificationService
 from app.auth.dependencies import get_current_user, require_hr_team, require_any_hr_manager, require_admin, require_hr_manager
 from pydantic import BaseModel
 from typing import List, Optional
@@ -500,6 +502,7 @@ async def get_salary_structure(user_id: str, current_user: User = Depends(get_cu
 @router.post("/draft", response_model=dict)
 async def create_payroll_draft(
     request: PayrollDraftRequest,
+    http_request: Request,
     hr_user: User = Depends(require_hr_team)
 ):
     """Prepare a new payroll draft (Assistant HR Manager or above)."""
@@ -537,6 +540,16 @@ async def create_payroll_draft(
             payroll.net_salary = max(0.0, gross - deducts)
             await payroll.save()
             
+        await AuditService.log_event(
+            actor=hr_user,
+            entity_type="payroll",
+            entity_id=payroll.id,
+            action="drafted",
+            after_state=payroll.model_dump(),
+            ip_address=http_request.client.host,
+            user_agent=http_request.headers.get("user-agent")
+        )
+
         return {"message": "Payroll draft successfully generated", "id": str(payroll.id)}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -639,6 +652,7 @@ async def run_payroll_engine(
 @router.post("/mark-paid/{payroll_id}", response_model=dict)
 async def mark_payroll_paid(
     payroll_id: str,
+    http_request: Request,
     hr_mgr: User = Depends(require_hr_team)
 ):
     """Mark a locked payroll as Paid (moves status to Paid)."""
@@ -646,6 +660,7 @@ async def mark_payroll_paid(
     if not payroll:
         raise HTTPException(status_code=404, detail="Payroll record not found")
         
+    before_state = payroll.model_dump()
     if payroll.status != PayrollStatus.LOCKED:
         raise HTTPException(
             status_code=400,
@@ -656,6 +671,25 @@ async def mark_payroll_paid(
     payroll.updated_at = datetime.utcnow()
     await payroll.save()
     
+    await AuditService.log_event(
+        actor=hr_mgr,
+        entity_type="payroll",
+        entity_id=payroll.id,
+        action="paid",
+        before_state=before_state,
+        after_state=payroll.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
+    await NotificationService.notify_user(
+        user_id=payroll.user_id,
+        sender_id=hr_mgr.id,
+        title="Payroll Paid",
+        message=f"Your payroll for {payroll.month} has been marked as paid. You can now view your payslip.",
+        type="system"
+    )
+
     # Audit log
     log = ActivityLog(
         user_id=hr_mgr.id,
@@ -788,6 +822,7 @@ async def get_pending_payrolls(user: User = Depends(require_hr_team)):
 async def review_payroll(
     payroll_id: str,
     action: PayrollActionRequest,
+    http_request: Request,
     hr_mgr: User = Depends(require_hr_manager)
 ):
     """Review and verify a payroll draft (HR Manager or Admin only)."""
@@ -804,6 +839,7 @@ async def review_payroll(
                 detail="You can only review payroll for employees under your hierarchy."
             )
 
+    before_state = payroll.model_dump()
     if payroll.status != PayrollStatus.DRAFT:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -816,6 +852,25 @@ async def review_payroll(
     payroll.updated_at = datetime.utcnow()
     await payroll.save()
 
+    await AuditService.log_event(
+        actor=hr_mgr,
+        entity_type="payroll",
+        entity_id=payroll.id,
+        action="reviewed",
+        before_state=before_state,
+        after_state=payroll.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
+    await NotificationService.notify_user(
+        user_id=payroll.user_id,
+        sender_id=hr_mgr.id,
+        title="Payroll Under Review",
+        message=f"Your payroll for {payroll.month} is currently under review.",
+        type="system"
+    )
+
     return {"message": "Payroll draft verified and moved to Under Review status."}
 
 
@@ -823,6 +878,7 @@ async def review_payroll(
 async def approve_payroll(
     payroll_id: str,
     action: PayrollActionRequest,
+    http_request: Request,
     admin: User = Depends(require_admin)
 ):
     """Approve and lock payroll (Admin/MD only). Generates official audit logs."""
@@ -830,6 +886,7 @@ async def approve_payroll(
     if not payroll:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll record not found")
 
+    before_state = payroll.model_dump()
     if payroll.status not in [PayrollStatus.DRAFT, PayrollStatus.UNDER_REVIEW]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -841,6 +898,25 @@ async def approve_payroll(
     payroll.approved_by_name = admin.name
     payroll.updated_at = datetime.utcnow()
     await payroll.save()
+
+    await AuditService.log_event(
+        actor=admin,
+        entity_type="payroll",
+        entity_id=payroll.id,
+        action="locked",
+        before_state=before_state,
+        after_state=payroll.model_dump(),
+        ip_address=http_request.client.host,
+        user_agent=http_request.headers.get("user-agent")
+    )
+
+    await NotificationService.notify_user(
+        user_id=payroll.user_id,
+        sender_id=admin.id,
+        title="Payroll Approved",
+        message=f"Your payroll for {payroll.month} has been approved and locked.",
+        type="system"
+    )
 
     # Log critical audit entry
     log = ActivityLog(
@@ -857,6 +933,7 @@ async def approve_payroll(
 @router.post("/recalculate/{payroll_id}")
 async def manual_recalculate_payroll(
     payroll_id: str,
+    http_request: Request,
     admin: User = Depends(require_hr_team)
 ):
     """Manually trigger recalculation of a payroll (draft, or flagged as recalculation_required)."""
@@ -879,6 +956,7 @@ async def manual_recalculate_payroll(
             )
 
     try:
+        before_state = payroll.model_dump()
         new_payroll = await calculate_corporate_payroll(
             employee=employee,
             month=payroll.month,
@@ -886,6 +964,29 @@ async def manual_recalculate_payroll(
             drafted_by_name=admin.name,
             force=True
         )
+
+        await AuditService.log_event(
+            actor=admin,
+            entity_type="payroll",
+            entity_id=new_payroll.id,
+            action="recalculated",
+            before_state=before_state,
+            after_state=new_payroll.model_dump(),
+            ip_address=http_request.client.host,
+            user_agent=http_request.headers.get("user-agent")
+        )
+
+        # Clear any pending impacts for this employee/month
+        from app.models.payroll_impact import PayrollRecalculationImpact, ImpactStatus
+        from app.services.payroll_impact_service import PayrollImpactService
+        pending_impacts = await PayrollRecalculationImpact.find(
+            PayrollRecalculationImpact.user_id == employee.id,
+            PayrollRecalculationImpact.month == payroll.month,
+            PayrollRecalculationImpact.status == ImpactStatus.PENDING
+        ).to_list()
+        for impact in pending_impacts:
+            await PayrollImpactService.mark_processed(impact.id, admin.id)
+
         return {"message": "Payroll recalculated successfully", "id": str(new_payroll.id)}
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

@@ -66,12 +66,12 @@ export default function DashboardCharts({ stats }: DashboardChartsProps) {
                 />
               )}
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-2 w-full">
+            <div className="flex flex-wrap justify-center gap-2 w-full">
               {taskStatusData.map((item) => (
-                <div key={item.name} className="flex flex-col p-2 rounded-xl bg-slate-50/50 border border-slate-100/50">
+                <div key={item.name} className="flex flex-col items-center p-2 min-w-[70px] rounded-xl bg-slate-50/50 border border-slate-100/50">
                   <div className="flex items-center gap-1.5 mb-0.5">
                     <div className="w-1.5 h-1.5 rounded-full" style={{ background: item.color }} />
-                    <span className="text-[8px] font-black uppercase text-slate-400 tracking-wider truncate">{item.name}</span>
+                    <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider truncate">{item.name}</span>
                   </div>
                   <span className="text-sm font-black text-slate-800">{item.value}</span>
                 </div>

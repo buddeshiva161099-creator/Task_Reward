@@ -21,7 +21,7 @@ export default function Home() {
             <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-200 text-white">
               <Zap className="w-6 h-6" />
             </div>
-            <span className="text-xl font-bold tracking-tight text-slate-900">TaskReward</span>
+            <span className="text-xl font-bold tracking-tight text-slate-900">TaskReward Workforce</span>
           </div>
           
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
@@ -62,10 +62,10 @@ export default function Home() {
               Next-Gen SaaS Platform
             </div>
             <h1 className="text-5xl lg:text-7xl font-extrabold text-slate-900 leading-[1.1] tracking-tight">
-              Productivity with <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-500">Precision</span> & Rewards.
+              Complete <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-violet-500">Workforce</span> Operations.
             </h1>
             <p className="text-xl text-slate-600 leading-relaxed">
-              TaskReward transforms your organization into a high-performance engine. Track attendance with live geolocation, gamify tasks, and manage roles in one sleek interface.
+              TaskReward is an integrated workforce operations platform connecting tasks, attendance, leave, and payroll into one trustworthy operational system.
             </p>
             <div className="flex flex-col sm:flex-row items-center gap-4 pt-4">
               <Link href="/login" className="btn btn-primary btn-lg w-full sm:w-auto px-10 py-4.5 text-lg rounded-2xl shadow-2xl shadow-indigo-200">
@@ -252,9 +252,9 @@ export default function Home() {
           <div className="col-span-2 space-y-6">
             <div className="flex items-center gap-3">
               <Zap className="w-8 h-8 text-indigo-600" />
-              <span className="text-2xl font-black text-slate-900 tracking-tighter uppercase">TaskReward</span>
+              <span className="text-2xl font-black text-slate-900 tracking-tighter uppercase">TaskReward Workforce</span>
             </div>
-            <p className="text-slate-500 max-w-sm leading-relaxed">The ultimate SaaS platform for modern employee task management, rewards, and geolocation attendance tracking.</p>
+            <p className="text-slate-500 max-w-sm leading-relaxed">The integrated workforce operations platform for modern employee task management, rewards, and compliance-ready attendance.</p>
           </div>
           <div>
             <h5 className="font-bold text-slate-900 mb-6 uppercase text-xs tracking-widest">Platform</h5>

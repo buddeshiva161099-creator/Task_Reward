@@ -143,9 +143,9 @@ export default function ChatContainer() {
     }
   }, []);
 
-  const fetchHistory = useCallback(async () => {
+  const fetchHistory = useCallback(async (isPolling = false) => {
     if (!selectedUser && !selectedGroup) return;
-    setLoadingHistory(true);
+    if (!isPolling) setLoadingHistory(true);
     try {
       let url = '/chat/history';
       const params: any = {};
@@ -202,7 +202,7 @@ export default function ChatContainer() {
       fetchUsers();
       fetchGroups();
       if (selectedUser || selectedGroup) {
-        fetchHistory();
+        fetchHistory(true);
       }
     }, 4000);
 

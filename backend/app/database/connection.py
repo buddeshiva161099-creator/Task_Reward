@@ -21,6 +21,8 @@ from app.models.payroll import SalaryStructure, Payroll, PayrollHistory
 from app.models.chat_group import ChatGroup
 from app.models.chat_message import ChatMessage
 from app.models.ai_insight import CachedAIInsight
+from app.models.audit_event import AuditEvent
+from app.models.payroll_impact import PayrollRecalculationImpact
 
 
 async def auto_seed_if_needed():
@@ -68,7 +70,7 @@ async def init_db():
                 User, Task, ActivityLog, Company, Attendance, Holiday, 
                 RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
                 AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
-                ChatGroup, ChatMessage, CachedAIInsight
+                ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact
             ]
         )
         print(f"[OK] Connected to MongoDB: {settings.DATABASE_NAME}")
@@ -97,7 +99,7 @@ async def init_db():
                     User, Task, ActivityLog, Company, Attendance, Holiday, 
                     RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
                     AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
-                    ChatGroup, ChatMessage, CachedAIInsight
+                    ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact
                 ]
             )
             print(f"[OK] Connected to mock in-memory MongoDB: {settings.DATABASE_NAME}")

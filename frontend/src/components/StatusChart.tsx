@@ -34,14 +34,15 @@ export default function StatusChart({ data, total, completed, size = 240 }: Stat
             data={data}
             cx="50%"
             cy="50%"
-            innerRadius={size / 4}
-            outerRadius={size / 2.8}
-            paddingAngle={8}
+            innerRadius={size / 3.5}
+            outerRadius={size / 2.5}
+            paddingAngle={2}
             dataKey="value"
-            stroke="none"
+            stroke="#fff"
+            strokeWidth={2}
             animationBegin={0}
             animationDuration={1000}
-            cornerRadius={6}
+            cornerRadius={4}
           >
             {data.map((entry, index) => (
               <Cell 
