@@ -10,7 +10,7 @@ from app.services.geofence_utils import (
 from datetime import datetime, timedelta, timezone
 from app.models.attendance import Attendance, ist_now, IST
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from beanie import PydanticObjectId
 from beanie.operators import In
 import logging
