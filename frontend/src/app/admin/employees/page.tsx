@@ -34,8 +34,9 @@ export default function EmployeesPage() {
     mobile: '', alternate_mobile: '',
     reporting_manager_id: '', hr_reporting_manager_id: '',
     // visual MNC details
-    job_title: '', department: '', branch: '', national_id: '', emergency_contact: '',
-    business_unit_id: ''
+    job_title: '', department: '', branch: '', identity_card_type: '', emergency_contact: '',
+    hiring_date: new Date().toISOString().split('T')[0],
+    hiring_company: '', business_unit_id: ''
   });
 
   // Edit Modal Credentials & Password states
@@ -127,6 +128,26 @@ export default function EmployeesPage() {
     }));
   };
 
+  const formatApiError = (err: unknown, fallbackMessage: string) => {
+    const axiosError = err as { response?: { data?: any } };
+    const detail = axiosError.response?.data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map((item) => {
+          if (typeof item === 'string') return item;
+          if (item?.msg) return item.msg;
+          if (item?.message) return item.message;
+          return JSON.stringify(item);
+        })
+        .join(' | ');
+    }
+    if (detail && typeof detail === 'object') {
+      return detail.message || JSON.stringify(detail);
+    }
+    return fallbackMessage;
+  };
+
   // Secure password generator
   const generateTempPassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
@@ -143,7 +164,24 @@ export default function EmployeesPage() {
     setError('');
 
     // Prepare payload
-    const payload: Record<string, any> = { ...newEmployee };
+    const payload: Record<string, any> = {
+      name: newEmployee.name,
+      email: newEmployee.email,
+      password: newEmployee.password,
+      role: newEmployee.role,
+      mobile: newEmployee.mobile,
+      alternate_mobile: newEmployee.alternate_mobile || undefined,
+      reporting_manager_id: newEmployee.reporting_manager_id || undefined,
+      hr_reporting_manager_id: newEmployee.hr_reporting_manager_id || undefined,
+      business_unit_id: newEmployee.business_unit_id || undefined,
+      identity_card_type: newEmployee.identity_card_type || undefined,
+      emergency_contact: newEmployee.emergency_contact || undefined,
+      job_title: newEmployee.job_title || undefined,
+      department: newEmployee.department || undefined,
+      branch: newEmployee.branch || undefined,
+      hiring_date: newEmployee.hiring_date || undefined,
+      hiring_company: newEmployee.hiring_company || undefined,
+    };
     if (isManagementOnly && user) {
       payload.reporting_manager_id = user.id;
       payload.role = 'employee';
@@ -168,16 +206,16 @@ export default function EmployeesPage() {
         name: '', email: '', password: '', role: 'employee',
         mobile: '', alternate_mobile: '',
         reporting_manager_id: '', hr_reporting_manager_id: '',
-        job_title: '', department: '', branch: '', national_id: '', emergency_contact: '',
-        business_unit_id: ''
+        job_title: '', department: '', branch: '', identity_card_type: '', emergency_contact: '',
+        hiring_date: new Date().toISOString().split('T')[0],
+        hiring_company: '', business_unit_id: ''
       });
       setActiveStep(1);
       
       fetchEmployees();
       fetchAllUsers();
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { detail?: string } } };
-      setError(axiosError.response?.data?.detail || 'Failed to create employee');
+      setError(formatApiError(err, 'Failed to create employee'));
     } finally {
       setCreating(false);
     }
@@ -287,8 +325,7 @@ export default function EmployeesPage() {
       setShowEditModal(false);
       fetchEmployees();
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { detail?: string } } };
-      setError(axiosError.response?.data?.detail || 'Failed to update employee');
+      setError(formatApiError(err, 'Failed to update employee'));
     } finally {
       setSaving(false);
     }
@@ -608,13 +645,13 @@ HR Operations & Management`;
                         </div>
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">National ID / Passport</label>
+                        <label className="block text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-2 ml-1">Identity Document / Passport</label>
                         <div className="relative">
                           <div className="input-icon-container"><Shield className="w-4 h-4" /></div>
                           <input
                             type="text"
-                            value={newEmployee.national_id}
-                            onChange={(e) => setNewEmployee({ ...newEmployee, national_id: e.target.value })}
+                            value={newEmployee.identity_card_type}
+                            onChange={(e) => setNewEmployee({ ...newEmployee, identity_card_type: e.target.value })}
                             className="input input-with-icon h-12 rounded-2xl border-slate-200"
                             placeholder="AA-89027-C"
                           />
@@ -740,7 +777,8 @@ HR Operations & Management`;
                           <div className="input-icon-container"><Calendar className="w-4 h-4" /></div>
                           <input
                             type="date"
-                            defaultValue={new Date().toISOString().split('T')[0]}
+                            value={newEmployee.hiring_date}
+                            onChange={(e) => setNewEmployee({ ...newEmployee, hiring_date: e.target.value })}
                             className="input input-with-icon h-12 rounded-2xl border-slate-200"
                           />
                         </div>
