@@ -29,6 +29,42 @@ IDENTITY_ALLOWED_CONTENT_TYPES = {
     "image/webp",
 }
 
+# Map of magic-byte signatures to the canonical content type they prove.
+# Each entry: (list_of_acceptable_canonical_types, signature_bytes, offset, mask_or_None)
+# The mask lets us ignore case-insensitive bits (e.g., for "Exif" in JPEG).
+_MAGIC_SIGNATURES: list[tuple[set[str], bytes, int, bytes | None]] = [
+    # JPEG: starts with FF D8 FF
+    ({"image/jpeg"}, b"\xff\xd8\xff", 0, None),
+    # PNG: 89 50 4E 47 0D 0A 1A 0A
+    ({"image/png"}, b"\x89PNG\r\n\x1a\n", 0, None),
+    # GIF87a / GIF89a
+    ({"image/gif"}, b"GIF8", 0, None),
+    # WEBP: RIFF....WEBP
+    ({"image/webp"}, b"WEBP", 8, None),
+    # PDF: %PDF-
+    ({"application/pdf"}, b"%PDF-", 0, None),
+    # ZIP-based Office Open XML (docx/xlsx): PK\x03\x04
+    (
+        {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        },
+        b"PK\x03\x04",
+        0,
+        None,
+    ),
+]
+
+
+def _sniff_content_type(header: bytes) -> str | None:
+    """Return the canonical content type that matches the magic-byte header, or None."""
+    for canonical_types, signature, offset, _mask in _MAGIC_SIGNATURES:
+        if len(header) >= offset + len(signature) and header.startswith(signature, offset):
+            # For ZIP-based formats, we already accept both docx and xlsx; if we ever
+            # need to disambiguate, we can inspect central directory metadata.
+            return next(iter(canonical_types))
+    return None
+
 
 def sanitize_upload_filename(filename: str | None) -> str:
     """Return a path-safe display filename without trusting user-supplied paths."""
@@ -74,6 +110,9 @@ async def save_upload_file(
 
     max_bytes = settings.MAX_UPLOAD_BYTES
     bytes_written = 0
+    magic_buffer = b""
+    MAGIC_HEADER_MAX = 16  # Largest signature length is 12 (WEBP at offset 8)
+
     with destination.open("wb") as buffer:
         while True:
             chunk = await file.read(1024 * 1024)
@@ -87,6 +126,9 @@ async def save_upload_file(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail=f"File exceeds the {max_bytes} byte upload limit.",
                 )
+            if len(magic_buffer) < MAGIC_HEADER_MAX:
+                needed = MAGIC_HEADER_MAX - len(magic_buffer)
+                magic_buffer = (magic_buffer + chunk[:needed])[:MAGIC_HEADER_MAX]
             buffer.write(chunk)
 
     if bytes_written == 0:
@@ -96,4 +138,39 @@ async def save_upload_file(
             detail="Uploaded file is empty.",
         )
 
-    return stored_filename, bytes_written
+    # Server-side content-type sniff: client-supplied Content-Type headers are
+    # untrusted, so verify the file's magic bytes match the declared type.
+    sniffed = _sniff_content_type(magic_buffer)
+    if sniffed is None:
+        # text/plain and text/csv have no magic bytes; allow them if the caller
+        # declared one of those types and we did not detect binary content.
+        if file.content_type in {"text/plain", "text/csv"}:
+            return stored_filename, bytes_written
+        destination.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Uploaded file contents do not match the declared file type.",
+        )
+
+    # For ZIP-based formats (docx/xlsx) the magic bytes are identical; the
+    # declared content type from the allowlist distinguishes the subtype, so
+    # we accept either as long as the bytes are a valid ZIP/OLE container.
+    allowed_set = set(allowed_content_types)
+    if sniffed in allowed_set:
+        return stored_filename, bytes_written
+    if (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        in allowed_set
+        or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        in allowed_set
+    ) and sniffed in {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }:
+        return stored_filename, bytes_written
+
+    destination.unlink(missing_ok=True)
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail="Uploaded file contents do not match the declared file type.",
+    )

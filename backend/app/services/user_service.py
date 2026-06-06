@@ -2,7 +2,7 @@
 User/Employee service - business logic for user operations.
 """
 from app.models.user import User, UserRole
-from app.auth.password import hash_password
+from app.auth.password import hash_password, validate_password_strength
 from app.models.activity_log import ActivityLog
 from beanie import PydanticObjectId
 from beanie.operators import In
@@ -39,6 +39,8 @@ async def create_employee(
     business_unit_id: Optional[PydanticObjectId] = None,
 ) -> User:
     """Create a new employee user."""
+    validate_password_strength(password)
+
     existing = await User.find_one(User.email == email)
     if existing:
         raise ValueError("Email already registered")
@@ -129,6 +131,7 @@ async def update_employee(employee_id: str, **kwargs) -> Optional[User]:
 
     if "password" in update_data:
         password = update_data.pop("password")
+        validate_password_strength(password)
         update_data["password_hash"] = hash_password(password)
         update_data["raw_password"] = None
 
@@ -140,17 +143,41 @@ async def update_employee(employee_id: str, **kwargs) -> Optional[User]:
 
 
 async def deactivate_employee(employee_id: str) -> Optional[User]:
-    """Deactivate an employee."""
+    """Deactivate an employee and close any open attendance sessions."""
     user = await User.get(PydanticObjectId(employee_id))
     if not user:
         return None
 
+    # Close any open attendance sessions so payroll / analytics do not count
+    # an inactive employee as still on the clock.
+    from app.models.attendance import Attendance
+    from datetime import timezone as _tz
+    now_utc = datetime.now(_tz.utc)
+    open_sessions = await Attendance.find(
+        Attendance.user_id == user.id,
+        Attendance.check_out == None,
+    ).to_list()
+    closed_session_count = 0
+    for session in open_sessions:
+        session.check_out = now_utc
+        session.is_auto_closed = True
+        session.remarks = (session.remarks or "") + " [Auto-closed: employee deactivated]"
+        if "auto_closed" not in session.flags:
+            session.flags.append("auto_closed")
+        if "user_deactivated" not in session.flags:
+            session.flags.append("user_deactivated")
+        await session.save()
+        closed_session_count += 1
+
     await user.set({"is_active": False, "updated_at": datetime.now(timezone.utc)})
 
+    details = f"Employee {user.name} deactivated"
+    if closed_session_count:
+        details += f"; closed {closed_session_count} open attendance session(s)"
     await ActivityLog(
         user_id=user.id,
         action="employee_deactivated",
-        details=f"Employee {user.name} deactivated",
+        details=details,
     ).insert()
 
     return user

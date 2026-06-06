@@ -4,7 +4,7 @@ Authentication routes - login, register, and current user.
 from fastapi import APIRouter, HTTPException, status, Depends
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, ChangePasswordRequest
 from app.models.user import User, UserRole
-from app.auth.password import hash_password, verify_password
+from app.auth.password import hash_password, verify_password, validate_password_strength
 from app.auth.jwt_handler import create_access_token
 from app.auth.dependencies import get_current_user
 from app.config import settings
@@ -71,6 +71,8 @@ async def register(request: RegisterRequest):
             detail="Public registration is disabled. Contact an administrator for account creation.",
         )
 
+    validate_password_strength(request.password)
+
     if request.role != UserRole.EMPLOYEE.value:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -134,6 +136,14 @@ async def change_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Incorrect current password",
         )
+
+    if request.current_password == request.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password.",
+        )
+
+    validate_password_strength(request.new_password)
 
     current_user.password_hash = hash_password(request.new_password)
     current_user.raw_password = None

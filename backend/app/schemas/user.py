@@ -4,38 +4,40 @@ User/Employee request/response schemas.
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 
+from app.auth.password import MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH
+
 
 class CreateEmployeeRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
-    password: str = Field(..., min_length=6, max_length=100)
+    password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)
     role: Optional[str] = "employee"
-    mobile: str = Field(..., min_length=1)
-    alternate_mobile: Optional[str] = None
+    mobile: str = Field(..., min_length=1, max_length=20)
+    alternate_mobile: Optional[str] = Field(None, max_length=20)
     reporting_manager_id: Optional[str] = None
     hr_reporting_manager_id: Optional[str] = None
     business_unit_id: Optional[str] = None
 
-    # New fields
-    identity_card_type: Optional[str] = None
-    identity_card_url: Optional[str] = None
-    emergency_contact: Optional[str] = None
-    job_title: Optional[str] = None
-    department: Optional[str] = None
-    branch: Optional[str] = None
-    hiring_date: Optional[str] = None
-    hiring_company: Optional[str] = None
+    # New fields (all capped to prevent oversized payloads)
+    identity_card_type: Optional[str] = Field(None, max_length=50)
+    identity_card_url: Optional[str] = Field(None, max_length=500)
+    emergency_contact: Optional[str] = Field(None, max_length=20)
+    job_title: Optional[str] = Field(None, max_length=100)
+    department: Optional[str] = Field(None, max_length=100)
+    branch: Optional[str] = Field(None, max_length=100)
+    hiring_date: Optional[str] = Field(None, max_length=20)
+    hiring_company: Optional[str] = Field(None, max_length=100)
 
 
 class UpdateEmployeeRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
-    mobile: Optional[str] = None
-    alternate_mobile: Optional[str] = None
+    mobile: Optional[str] = Field(None, max_length=20)
+    alternate_mobile: Optional[str] = Field(None, max_length=20)
     reward_points: Optional[float] = None
     role: Optional[str] = None
-    password: Optional[str] = Field(None, min_length=6, max_length=100)
+    password: Optional[str] = Field(None, min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)
     reporting_manager_id: Optional[str] = None
     hr_reporting_manager_id: Optional[str] = None
     business_unit_id: Optional[str] = None

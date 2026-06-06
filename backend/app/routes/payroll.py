@@ -181,8 +181,10 @@ async def calculate_corporate_payroll(
     holiday_dates = {h.date.astimezone(IST).date() for h in holidays_list}
 
     # 6. Count working days, weekends, holidays in active window
+    work_days = tenant.work_days if tenant else None
+    work_days_set = {d.strip().lower() for d in work_days} if work_days else None
     total_working_days, holidays_weekends = _count_working_days(
-        active_start_date, active_end_date, tenant.work_days if tenant else None, holiday_dates
+        active_start_date, active_end_date, work_days, holiday_dates
     )
 
     # 7. Fetch Attendance Logs & Leaves in the month

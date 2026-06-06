@@ -19,12 +19,18 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Cap free-form strings to prevent oversized payloads and to harden the audit log.
+MAX_REMARKS_LENGTH = 1000
+MAX_ADDRESS_LENGTH = 500
+MAX_DEVICE_FINGERPRINT_LENGTH = 128
+
+
 class AttendanceRequest(BaseModel):
     lat: float
     lng: float
-    address: Optional[str] = None
-    remarks: Optional[str] = None
-    device_fingerprint: Optional[str] = None
+    address: Optional[str] = Field(None, max_length=MAX_ADDRESS_LENGTH)
+    remarks: Optional[str] = Field(None, max_length=MAX_REMARKS_LENGTH)
+    device_fingerprint: Optional[str] = Field(None, max_length=MAX_DEVICE_FINGERPRINT_LENGTH)
 
 class AttendanceResponse(BaseModel):
     id: str

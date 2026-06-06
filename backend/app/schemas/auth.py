@@ -3,16 +3,18 @@ Authentication request/response schemas.
 """
 from pydantic import BaseModel, EmailStr, Field
 
+from app.auth.password import MIN_PASSWORD_LENGTH, MAX_PASSWORD_LENGTH
+
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=1, max_length=MAX_PASSWORD_LENGTH)
 
 
 class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     email: EmailStr
-    password: str = Field(..., min_length=6, max_length=100)
+    password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)
     role: str = Field(default="employee", pattern="^(admin|hr_manager|assistant_hr_manager|manager|assistant_manager|employee)$")
 
 
@@ -33,5 +35,5 @@ class UserResponse(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str = Field(..., min_length=6)
-    new_password: str = Field(..., min_length=6, max_length=100)
+    current_password: str = Field(..., min_length=1, max_length=MAX_PASSWORD_LENGTH)
+    new_password: str = Field(..., min_length=MIN_PASSWORD_LENGTH, max_length=MAX_PASSWORD_LENGTH)

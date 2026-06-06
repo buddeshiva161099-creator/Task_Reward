@@ -110,6 +110,26 @@ async def auto_checkout_stale_sessions():
                     except Exception as ne:
                         _logger.warning(f"Could not send auto-checkout notification for user {session.user_id}: {ne}")
 
+                    # Write an audit log entry for the auto-close action
+                    try:
+                        from app.services.audit_service import AuditService
+                        await AuditService.log_event(
+                            actor=None,
+                            entity_type="attendance",
+                            entity_id=session.id,
+                            action="auto_checkout",
+                            before_state={"check_out": None, "is_auto_closed": False},
+                            after_state={
+                                "check_out": session.check_out.isoformat() if session.check_out else None,
+                                "is_auto_closed": True,
+                                "flags": list(session.flags or []),
+                            },
+                            ip_address=None,
+                            user_agent="system:auto_checkout",
+                        )
+                    except Exception as ae:
+                        _logger.warning(f"Could not write audit log for auto-checkout of session {getattr(session, 'id', 'unknown')}: {ae}")
+
                     _logger.info(f"[AUTO-CHECKOUT] Closed stale session for user {session.user_id}")
             except Exception as se:
                 _logger.error(f"Error processing auto-checkout for session {getattr(session, 'id', 'unknown')}: {se}")

@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from app.utils.ist_time import to_utc_iso
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from beanie import PydanticObjectId
 
 from app.models.user import User, UserRole
@@ -16,29 +16,34 @@ from app.utils.uploads import CHAT_ALLOWED_CONTENT_TYPES, save_upload_file
 
 router = APIRouter(prefix="/chat", tags=["Chat Collaboration"])
 
+MAX_NAME_LENGTH = 120
+MAX_TEXT_LENGTH = 4000
+MAX_MESSAGE_LENGTH = 1000
+MAX_ATTACHMENT_NAME_LENGTH = 255
+
 # --- schemas ---
 
 class GroupCreateRequest(BaseModel):
-    name: str
-    members: List[str]
+    name: str = Field(..., min_length=1, max_length=MAX_NAME_LENGTH)
+    members: List[str] = Field(default_factory=list)
 
 class GroupUpdateRequest(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=MAX_NAME_LENGTH)
     members: Optional[List[str]] = None
 
 class MessageSendRequest(BaseModel):
     group_id: Optional[str] = None
     recipient_id: Optional[str] = None
-    text: str
-    type: str = "text"
-    attachment_url: Optional[str] = None
-    attachment_name: Optional[str] = None
+    text: str = Field(..., min_length=1, max_length=MAX_TEXT_LENGTH)
+    type: str = Field(default="text", pattern="^(text|file|task|tip)$")
+    attachment_url: Optional[str] = Field(None, max_length=500)
+    attachment_name: Optional[str] = Field(None, max_length=MAX_ATTACHMENT_NAME_LENGTH)
     task_card_id: Optional[str] = None
 
 class TipRequest(BaseModel):
     recipient_id: str
-    points: float
-    message: str
+    points: float = Field(..., gt=0, le=10_000)
+    message: str = Field(..., min_length=1, max_length=MAX_MESSAGE_LENGTH)
 
 class ReadMessageRequest(BaseModel):
     group_id: Optional[str] = None
@@ -49,11 +54,55 @@ def is_manager(user: User) -> bool:
     return user.role != UserRole.EMPLOYEE
 
 
+async def _resolve_tenant_member_ids(
+    raw_ids: List[str], current_user: User
+) -> List[PydanticObjectId]:
+    """Convert raw member IDs to ObjectIds, rejecting cross-tenant references."""
+    converted: List[PydanticObjectId] = []
+    for m_id in raw_ids:
+        try:
+            oid = PydanticObjectId(m_id)
+        except Exception:
+            continue
+        converted.append(oid)
+
+    if not converted:
+        return []
+
+    users = await User.find(In(User.id, converted)).to_list()
+    user_map = {u.id: u for u in users}
+
+    validated: List[PydanticObjectId] = []
+    for oid in converted:
+        target = user_map.get(oid)
+        if not target or target.is_deleted:
+            continue
+        if (
+            current_user.tenant_id is not None
+            and target.tenant_id != current_user.tenant_id
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only add members from your own tenant to a group.",
+            )
+        validated.append(oid)
+    return validated
+
+
 async def ensure_group_member(group_id: PydanticObjectId, user: User) -> ChatGroup:
-    """Load a group and ensure the current user is a member."""
+    """Load a group and ensure the current user is a member of the same tenant."""
     group = await ChatGroup.get(group_id)
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+    if (
+        user.tenant_id is not None
+        and group.tenant_id is not None
+        and group.tenant_id != user.tenant_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This group belongs to a different tenant.",
+        )
     if user.id not in group.members:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You are not a member of this group.")
     return group
@@ -192,13 +241,10 @@ async def create_chat_group(
             detail="Only managers and administrators are authorized to create groups."
         )
 
-    # Prepare members list (always include the creator)
+    # Resolve and validate member IDs against the caller's tenant.
+    tenant_member_ids = await _resolve_tenant_member_ids(request.members, current_user)
     member_ids = {current_user.id}
-    for m_id in request.members:
-        try:
-            member_ids.add(PydanticObjectId(m_id))
-        except Exception:
-            continue
+    member_ids.update(tenant_member_ids)
 
     group = ChatGroup(
         tenant_id=current_user.tenant_id,
@@ -233,16 +279,23 @@ async def update_chat_group(
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
 
+    if (
+        current_user.tenant_id is not None
+        and group.tenant_id is not None
+        and group.tenant_id != current_user.tenant_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only manage groups in your own tenant.",
+        )
+
     if request.name is not None:
         group.name = request.name.strip()
 
     if request.members is not None:
+        tenant_member_ids = await _resolve_tenant_member_ids(request.members, current_user)
         member_ids = {current_user.id}
-        for m_id in request.members:
-            try:
-                member_ids.add(PydanticObjectId(m_id))
-            except Exception:
-                continue
+        member_ids.update(tenant_member_ids)
         group.members = list(member_ids)
 
     group.updated_at = datetime.now(timezone.utc)
@@ -271,6 +324,16 @@ async def delete_chat_group(
     group = await ChatGroup.get(PydanticObjectId(group_id))
     if not group:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+
+    if (
+        current_user.tenant_id is not None
+        and group.tenant_id is not None
+        and group.tenant_id != current_user.tenant_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete groups in your own tenant.",
+        )
 
     # Delete all messages inside this group
     await ChatMessage.find(ChatMessage.group_id == group.id).delete()
