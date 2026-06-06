@@ -258,18 +258,14 @@ async def list_tasks(
                 is_admin=True,
             )
         elif current_user.role in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER] and all_tasks:
-            all_tasks = await task_service.get_tasks(
-                user_id=None,
+            # Optimized: Push hierarchy and ownership filtering to the database level
+            tasks = await task_service.get_tasks(
+                user_ids=list(visible_ids) if visible_ids is not None else [],
+                created_by=current_user.id,
                 status=status_filter,
                 priority=priority,
-                is_admin=True,
+                is_admin=False, # We use explicit user_ids/created_by instead of admin override
             )
-            # Filter in memory using visible_ids
-            tasks = [
-                t for t in all_tasks
-                if PydanticObjectId(t.assigned_to) in visible_ids
-                or PydanticObjectId(t.created_by) == current_user.id
-            ]
         else:
             # HR_MANAGER, ASSISTANT_HR_MANAGER, and EMPLOYEE all see only
             # tasks that are assigned to themselves.

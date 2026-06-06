@@ -9,6 +9,7 @@ from app.models.activity_log import ActivityLog
 from app.services.reward_service import apply_performance_score
 from app.models.notification import Notification
 from beanie import PydanticObjectId
+from beanie.operators import In, Or
 from datetime import datetime
 from typing import Optional, List
 
@@ -78,31 +79,60 @@ async def create_task(
 
 async def get_tasks(
     user_id: Optional[str] = None,
+    user_ids: Optional[List[PydanticObjectId]] = None,
+    created_by: Optional[PydanticObjectId] = None,
     status: Optional[str] = None,
     priority: Optional[str] = None,
     is_admin: bool = False,
 ) -> List[Task]:
-    """Get tasks with optional filters."""
-    query = {}
+    """Get tasks with optional filters. Optimized with database-level RBAC and overdue marking."""
+    query_parts = []
 
-    if (not is_admin and user_id) or (is_admin and user_id):
-        query["assigned_to"] = PydanticObjectId(user_id)
+    if user_id:
+        query_parts.append(Task.assigned_to == PydanticObjectId(user_id))
+    elif user_ids is not None:
+        if created_by:
+            # For management roles: see tasks assigned to hierarchy OR tasks they created
+            query_parts.append(Or(In(Task.assigned_to, user_ids), Task.created_by == created_by))
+        else:
+            query_parts.append(In(Task.assigned_to, user_ids))
+    elif not is_admin and not user_id:
+        # Default security fallback
+        return []
 
     if status:
-        query["status"] = status
+        query_parts.append(Task.status == status)
 
     if priority:
-        query["priority"] = priority
+        query_parts.append(Task.priority == priority)
 
-    tasks = await Task.find(query).sort("-created_at").to_list()
-
-    # Auto-mark overdue tasks
+    # 1. Optimized Batch Auto-mark overdue tasks before fetching
     from datetime import timezone
     now = datetime.now(timezone.utc)
-    for task in tasks:
-        if task.status in [TaskStatus.PENDING, TaskStatus.IN_PROGRESS] and task.deadline < now:
-            await task.set({"status": TaskStatus.OVERDUE, "updated_at": now})
-            task.status = TaskStatus.OVERDUE
+
+    # Use the same base filters for the update to maintain consistency
+    overdue_update_query = {
+        "status": {"$in": [TaskStatus.PENDING, TaskStatus.IN_PROGRESS]},
+        "deadline": {"$lt": now}
+    }
+
+    # Apply user filters to the update query too if present
+    if user_id:
+        overdue_update_query["assigned_to"] = PydanticObjectId(user_id)
+    elif user_ids is not None:
+        if created_by:
+            overdue_update_query["$or"] = [
+                {"assigned_to": {"$in": user_ids}},
+                {"created_by": created_by}
+            ]
+        else:
+            overdue_update_query["assigned_to"] = {"$in": user_ids}
+
+    # Batch update status to OVERDUE for all matching tasks
+    await Task.find(overdue_update_query).update({"$set": {"status": TaskStatus.OVERDUE, "updated_at": now}})
+
+    # 2. Fetch the tasks using the constructed query
+    tasks = await Task.find(*query_parts).sort("-created_at").to_list()
 
     return tasks
 
