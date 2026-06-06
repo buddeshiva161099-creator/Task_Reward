@@ -152,7 +152,7 @@ export default function EmployeesPage() {
   const generateTempPassword = () => {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*';
     let pass = 'Temp@';
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
       pass += chars.charAt(Math.floor(Math.random() * chars.length));
     }
     setNewEmployee(prev => ({ ...prev, password: pass }));
@@ -1046,7 +1046,7 @@ HR Operations & Management`;
                             className="input input-with-icon h-12 rounded-2xl border-slate-200 font-mono"
                             placeholder="Enter password"
                             required
-                            minLength={6}
+                            minLength={10}
                           />
                           <button
                             type="button"
