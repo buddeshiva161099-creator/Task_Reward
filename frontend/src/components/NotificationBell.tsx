@@ -55,10 +55,23 @@ export default function NotificationBell() {
     if (user?.id) {
       const connectWS = () => {
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const host = process.env.NEXT_PUBLIC_WS_URL || (typeof window !== 'undefined' ? `${window.location.hostname}:8000` : 'localhost:8000');
+        const defaultHost = typeof window !== 'undefined'
+          ? (window.location.hostname === 'localhost' ? `${window.location.hostname}:8000` : window.location.host)
+          : 'localhost:8000';
+        const configuredHost = process.env.NEXT_PUBLIC_WS_URL || defaultHost;
         const token = localStorage.getItem('token');
-        const wsUrl = `${protocol}//${host}/notifications/ws/${user.id}${token ? `?token=${token}` : ''}`;
+        const wsUrl = configuredHost.startsWith('ws')
+          ? `${configuredHost}/notifications/ws/${user.id}${token ? `?token=${token}` : ''}`
+          : `${protocol}//${configuredHost}/notifications/ws/${user.id}${token ? `?token=${token}` : ''}`;
         const ws = new WebSocket(wsUrl);
+
+        ws.onopen = () => {
+          console.debug('[NotificationBell] WebSocket connected', wsUrl);
+        };
+
+        ws.onerror = (error) => {
+          console.error('[NotificationBell] WebSocket error', error, wsUrl);
+        };
 
         ws.onmessage = (event) => {
           const message = JSON.parse(event.data);
