@@ -11,13 +11,13 @@ from app.models.leave_balance import LeaveBalance
 from app.models.payroll import Payroll, PayrollStatus, SalaryStructure
 from app.models.regularization import AttendanceRegularization, RegularizationStatus
 from app.models.attendance import Attendance
-from app.models.company import Company
+from app.models.tenant import Tenant
 from datetime import datetime, date, timedelta
 from beanie import PydanticObjectId
 
 @pytest_asyncio.fixture
 async def test_company(db):
-    company = Company(
+    company = Tenant(
         name="Test Fixes Corp",
         geofence_radius_meters=1000
     )
@@ -32,7 +32,7 @@ async def test_admin(db, test_company):
         full_name="Test Admin",
         password_hash="fakehash",
         role=UserRole.ADMIN,
-        company_id=test_company.id
+        tenant_id=test_company.id
     )
     await admin.insert()
     return admin
@@ -45,7 +45,7 @@ async def test_hr_manager(db, test_company):
         full_name="HR Manager",
         password_hash="fakehash",
         role=UserRole.HR_MANAGER,
-        company_id=test_company.id
+        tenant_id=test_company.id
     )
     await hr.insert()
     return hr
@@ -58,7 +58,7 @@ async def test_employee_user(db, test_company):
         full_name="Test Employee",
         password_hash="fakehash",
         role=UserRole.EMPLOYEE,
-        company_id=test_company.id
+        tenant_id=test_company.id
     )
     await user.insert()
 
@@ -68,7 +68,7 @@ async def test_employee_user(db, test_company):
         last_name="Employee",
         email=user.email,
         role="employee",
-        company_id=test_company.id,
+        tenant_id=test_company.id,
         location="HQ"
     )
     await emp.insert()
@@ -173,7 +173,7 @@ async def test_payroll_lock_impact_notification(test_admin, test_hr_manager, tes
 
     att = Attendance(
         user_id=user.id,
-        company_id=test_company.id,
+        tenant_id=test_company.id,
         check_in=datetime.now()
     )
     await att.insert()

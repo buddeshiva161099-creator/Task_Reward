@@ -135,7 +135,7 @@ async def export_ai_report(
         # Metadata Block
         ws['A3'] = "Generated Date:"
         ws['A3'].font = bold_font
-        ws['B3'] = datetime.utcnow().strftime("%d-%b-%Y %H:%M:%S UTC")
+        ws['B3'] = datetime.now(timezone.utc).strftime("%d-%b-%Y %H:%M:%S UTC")
         ws['B3'].font = regular_font
         
         ws['A4'] = "Requested By:"
@@ -483,7 +483,7 @@ async def export_ai_report(
             <table class="meta-table">
                 <tr>
                     <td><b>Generated Date:</b></td>
-                    <td>{datetime.utcnow().strftime("%d-%b-%Y %H:%M:%S UTC")}</td>
+                    <td>{datetime.now(timezone.utc).strftime("%d-%b-%Y %H:%M:%S UTC")}</td>
                 </tr>
                 <tr>
                     <td><b>Report Scope:</b></td>

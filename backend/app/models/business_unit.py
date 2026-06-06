@@ -16,7 +16,7 @@ contained in a Tenant. So a BusinessUnit has both:
 """
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -58,8 +58,8 @@ class BusinessUnit(Document):
     work_start_time: Optional[str] = None
     work_end_time: Optional[str] = None
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "business_units"

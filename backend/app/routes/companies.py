@@ -24,7 +24,7 @@ Behavior:
   * GET  /companies/{id}/business-units - the BUs inside a Company.
 """
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from beanie import PydanticObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -219,7 +219,7 @@ async def update_company(
                 detail="A company with this name already exists in your tenant.",
             )
     if update_data:
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(timezone.utc)
         await company.set(update_data)
 
     await AuditService.log_event(
@@ -259,7 +259,7 @@ async def deactivate_company(
         return _serialize(company)
 
     company.is_active = False
-    company.updated_at = datetime.utcnow()
+    company.updated_at = datetime.now(timezone.utc)
     await company.save()
 
     await AuditService.log_event(

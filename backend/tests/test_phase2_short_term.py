@@ -3,7 +3,7 @@ import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.models.user import User, UserRole
-from app.models.company import Company
+from app.models.tenant import Tenant
 from app.models.policy import PolicyVersion, ApprovalPolicy
 from app.models.ledger import LeaveLedgerEntry, RewardLedgerEntry
 from app.models.leave import Leave, LeaveType, LeaveStatus
@@ -11,7 +11,7 @@ from app.models.leave_balance import LeaveBalance
 from app.models.task import Task
 from app.models.audit_event import AuditEvent
 from app.models.notification_engine import NotificationTemplate, NotificationPreference, NotificationDeliveryLog
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from beanie import PydanticObjectId
 
 @pytest_asyncio.fixture(autouse=True)
@@ -30,6 +30,7 @@ async def db():
     from app.models.regularization import AttendanceRegularization
     from app.models.attendance import Attendance
     from app.models.company import Company
+    from app.models.tenant import Tenant
     from app.models.holiday import Holiday
     from app.models.task import Task
     from app.models.notification import Notification
@@ -43,27 +44,32 @@ async def db():
     from app.models.policy import PolicyVersion, ApprovalPolicy
     from app.models.ledger import LeaveLedgerEntry, RewardLedgerEntry
     from app.models.notification_engine import NotificationTemplate, NotificationPreference, NotificationDeliveryLog
+    from app.models.business_unit import BusinessUnit
+    from app.models.subscription_plan import SubscriptionPlan
+    from app.models.platform_audit_log import PlatformAuditLog
 
     mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
     client = AsyncMongoClient(mongodb_url)
     await init_beanie(database=client.test_db_phase2, document_models=[
-        User, Task, ActivityLog, Company, Attendance, Holiday,
+        User, Task, ActivityLog, Tenant, Company, Attendance, Holiday,
         RecurrenceRule, Notification, Category, Leave, LeaveBalance,
         AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
         ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact,
         Employee, PolicyVersion, ApprovalPolicy, LeaveLedgerEntry, RewardLedgerEntry,
-        NotificationTemplate, NotificationPreference, NotificationDeliveryLog
+        NotificationTemplate, NotificationPreference, NotificationDeliveryLog,
+        BusinessUnit, SubscriptionPlan, PlatformAuditLog
     ])
 
     # Clear db
     models = [
         User, Employee, AuditEvent, PayrollRecalculationImpact,
         Leave, Payroll, AttendanceRegularization, Attendance,
-        Company, SalaryStructure, PayrollHistory, Holiday, Task, Notification,
+        Tenant, Company, SalaryStructure, PayrollHistory, Holiday, Task, Notification,
         ActivityLog, LeaveBalance, ChatGroup, ChatMessage, CachedAIInsight,
         RecurrenceRule, Category, PolicyVersion, ApprovalPolicy,
         LeaveLedgerEntry, RewardLedgerEntry, NotificationTemplate,
-        NotificationPreference, NotificationDeliveryLog
+        NotificationPreference, NotificationDeliveryLog,
+        BusinessUnit, SubscriptionPlan, PlatformAuditLog
     ]
     for model in models:
         await model.find_all().delete()
@@ -73,7 +79,7 @@ async def db():
 
 @pytest_asyncio.fixture
 async def test_company():
-    company = Company(
+    company = Tenant(
         name="Phase2 Test Corp",
         geofence_radius_meters=500
     )
@@ -88,7 +94,7 @@ async def test_admin(test_company):
         full_name="Admin User",
         password_hash="hash",
         role=UserRole.ADMIN,
-        company_id=test_company.id
+        tenant_id=test_company.id
     )
     await admin.insert()
     return admin
@@ -101,7 +107,7 @@ async def test_employee_user(test_company):
         full_name="Employee User",
         password_hash="hash",
         role=UserRole.EMPLOYEE,
-        company_id=test_company.id
+        tenant_id=test_company.id
     )
     await user.insert()
     
@@ -123,11 +129,11 @@ async def test_policy_versioning(test_admin, test_company):
             "work_start_time": "10:00",
             "casual_leave_limit": 15
         }
-        response = await ac.put(f"/companies/{test_company.id}", json=payload)
+        response = await ac.put(f"/tenants/{test_company.id}", json=payload)
         assert response.status_code == 200
 
         # 2. Check if a PolicyVersion was created
-        versions = await PolicyVersion.find(PolicyVersion.company_id == test_company.id).to_list()
+        versions = await PolicyVersion.find(PolicyVersion.tenant_id == test_company.id).to_list()
         assert len(versions) >= 1
         latest = sorted(versions, key=lambda v: v.version)[-1]
         assert latest.work_start_time == "10:00"
@@ -179,12 +185,12 @@ async def test_reward_ledger_usage_and_sync(test_admin, test_employee_user, test
     task = Task(
         work_description="Complete documentation",
         assigned_to=test_employee_user.id,
-        company_id=test_company.id,
+        tenant_id=test_company.id,
         priority="high",
-        deadline=datetime.utcnow() + timedelta(days=1),
+        deadline=datetime.now(timezone.utc) + timedelta(days=1),
         created_by=test_admin.id,
         status="completed",
-        completed_at=datetime.utcnow()
+        completed_at=datetime.now(timezone.utc)
     )
     await task.insert()
 

@@ -3,8 +3,8 @@ AI Service - Workforce Intelligence, heuristics calculators, and OpenAI compatib
 """
 import os
 import json
-import urllib.request
-import urllib.error
+import asyncio
+import httpx
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from beanie import PydanticObjectId
@@ -16,7 +16,7 @@ from app.models.attendance import Attendance, ist_now
 from app.utils.ist_time import to_utc_iso
 from app.models.payroll import Payroll
 from app.models.ai_insight import CachedAIInsight
-from app.routes.employees import get_visible_employee_ids
+from app.services.user_service import get_visible_employee_ids
 
 
 # -------------------------------------------------------------
@@ -46,15 +46,10 @@ def call_openai_chat_completions(prompt: str, system_instruction: str = "You are
     }
 
     try:
-        req = urllib.request.Request(
-            url,
-            data=json.dumps(data).encode("utf-8"),
-            headers=headers,
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_body = response.read().decode("utf-8")
-            res_json = json.loads(res_body)
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(url, json=data, headers=headers)
+            response.raise_for_status()
+            res_json = response.json()
             return res_json["choices"][0]["message"]["content"]
     except Exception as e:
         print(f"[AI SERVICE] OpenAI API call failed: {str(e)}")
@@ -561,13 +556,20 @@ async def get_dashboard_intelligence_summary(
 
     scope = await get_employee_ids_in_scope(current_user)
 
-    task_intel = await run_task_analysis(scope, cid, business_unit_id=business_unit_id)
-    perf_intel = await run_performance_analysis(scope, cid, business_unit_id=business_unit_id)
-    attendance_intel = await run_attendance_analysis(scope, cid, business_unit_id=business_unit_id)
-
-    payroll_intel = {"alerts": []}
     if current_user.role in [UserRole.ADMIN, UserRole.HR_MANAGER]:
-        payroll_intel = await run_payroll_analysis(scope, cid, business_unit_id=business_unit_id)
+        task_intel, perf_intel, attendance_intel, payroll_intel = await asyncio.gather(
+            run_task_analysis(scope, cid, business_unit_id=business_unit_id),
+            run_performance_analysis(scope, cid, business_unit_id=business_unit_id),
+            run_attendance_analysis(scope, cid, business_unit_id=business_unit_id),
+            run_payroll_analysis(scope, cid, business_unit_id=business_unit_id)
+        )
+    else:
+        task_intel, perf_intel, attendance_intel = await asyncio.gather(
+            run_task_analysis(scope, cid, business_unit_id=business_unit_id),
+            run_performance_analysis(scope, cid, business_unit_id=business_unit_id),
+            run_attendance_analysis(scope, cid, business_unit_id=business_unit_id)
+        )
+        payroll_intel = {"alerts": []}
 
     alerts = []
     recommendations = []

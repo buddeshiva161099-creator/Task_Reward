@@ -1,6 +1,6 @@
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -15,8 +15,8 @@ class SalaryStructure(Document):
     pf_deduction: float = Field(default=0.0)
     esi_deduction: float = Field(default=0.0)
     tax_deduction: float = Field(default=0.0)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "salary_structures"
@@ -79,8 +79,8 @@ class Payroll(Document):
     version_number: int = Field(default=1)
     recalculation_required: bool = Field(default=False)
 
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "payrolls"
@@ -95,7 +95,7 @@ class PayrollHistory(Document):
     payroll_snapshot: dict
     reason_for_change: Optional[str] = None
     created_by: Optional[PydanticObjectId] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "payroll_history"

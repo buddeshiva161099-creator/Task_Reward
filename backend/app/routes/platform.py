@@ -5,12 +5,14 @@ These routes are accessible only to authenticated users whose role is
 PLATFORM_OWNER. Tenant users receive 403 here. The middleware in
 app.middleware.PlatformAuthMiddleware also enforces this.
 """
-from datetime import datetime
+from datetime import datetime, timezone
+import re
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, status, Depends, Request, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Request, Query, Response
 from pydantic import BaseModel, Field, EmailStr
 from beanie import PydanticObjectId
+from app.config import settings
 
 from app.models.user import User, UserRole
 from app.models.tenant import Tenant, TENANT_STATUSES
@@ -23,7 +25,10 @@ from app.services.onboarding_service import OnboardingService
 from app.services.platform_audit_service import PlatformAuditService
 from app.services.platform_metrics_service import PlatformMetricsService
 from app.utils.ist_time import to_utc_iso
+from app.utils.rate_limiter import RateLimiter
 
+
+platform_login_limiter = RateLimiter(times=5, seconds=60)
 
 router = APIRouter(prefix="/platform", tags=["Platform Owner"])
 
@@ -111,7 +116,7 @@ async def _resolve_plan_code(plan_id: Optional[PydanticObjectId]) -> Optional[st
 
 # ---------- Auth ----------
 
-@router.post("/auth/login", response_model=PlatformTokenResponse)
+@router.post("/auth/login", response_model=PlatformTokenResponse, dependencies=[Depends(platform_login_limiter)])
 async def platform_login(request: Request, body: PlatformLoginRequest):
     user = await User.find_one(User.email == body.email)
     if not user or not verify_password(body.password, user.password_hash):
@@ -136,8 +141,8 @@ async def platform_login(request: Request, body: PlatformLoginRequest):
             detail="Account is deactivated",
         )
 
-    user.last_login_at = datetime.utcnow()
-    user.last_active = datetime.utcnow()
+    user.last_login_at = datetime.now(timezone.utc)
+    user.last_active = datetime.now(timezone.utc)
     await user.save()
 
     token = create_access_token(
@@ -195,7 +200,7 @@ async def list_tenants(
             raise HTTPException(status_code=400, detail="Invalid status filter")
         query["tenant_status"] = status
     if search:
-        query["name"] = {"$regex": search, "$options": "i"}
+        query["name"] = {"$regex": re.escape(search), "$options": "i"}
 
     if plan:
         plan_doc = await SubscriptionPlan.find_one(SubscriptionPlan.code == plan)
@@ -203,15 +208,36 @@ async def list_tenants(
             return {"items": [], "total": 0}
         query["subscription_plan_id"] = plan_doc.id
 
+    plans = await SubscriptionPlan.find_all().to_list()
+    plan_code_map = {p.id: p.code for p in plans}
+
     items = await Tenant.find(query).sort("-created_at").skip(skip).limit(limit).to_list()
     total = await Tenant.find(query).count()
+
+    tenant_ids = [c.id for c in items]
+    employee_counts = {}
+    if tenant_ids:
+        counts_agg = await User.aggregate([
+            {
+                "$match": {
+                    "tenant_id": {"$in": tenant_ids},
+                    "is_platform_owner": False
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$tenant_id",
+                    "count": {"$sum": 1}
+                }
+            }
+        ]).to_list()
+        employee_counts = {str(item["_id"]): item["count"] for item in counts_agg if item["_id"] is not None}
+
     enriched = []
     for c in items:
-        plan_code = await _resolve_plan_code(c.subscription_plan_id)
+        plan_code = plan_code_map.get(c.subscription_plan_id) if c.subscription_plan_id else None
         summary = _tenant_summary(c, plan_code)
-        summary["employee_count"] = await User.find(
-            User.tenant_id == c.id, User.is_platform_owner == False
-        ).count()
+        summary["employee_count"] = employee_counts.get(str(c.id), 0)
         enriched.append(summary)
     return {"items": enriched, "total": total}
 
@@ -280,11 +306,28 @@ async def list_tenant_business_units(
         q["is_active"] = True
     units = await BusinessUnit.find(q).sort("+name").to_list()
 
+    unit_ids = [u.id for u in units]
+    employee_counts = {}
+    if unit_ids:
+        counts_agg = await User.aggregate([
+            {
+                "$match": {
+                    "business_unit_id": {"$in": unit_ids},
+                    "is_platform_owner": False
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$business_unit_id",
+                    "count": {"$sum": 1}
+                }
+            }
+        ]).to_list()
+        employee_counts = {str(item["_id"]): item["count"] for item in counts_agg if item["_id"] is not None}
+
     items = []
     for u in units:
-        emp_count = await User.find(
-            User.business_unit_id == u.id, User.is_platform_owner == False
-        ).count()
+        emp_count = employee_counts.get(str(u.id), 0)
         items.append({
             "id": str(u.id),
             "tenant_id": str(u.tenant_id),
@@ -342,8 +385,15 @@ async def reset_tenant_admin_password(
     tenant_id: str,
     admin_id: str,
     request: Request,
+    response: Response,
     owner: User = Depends(require_platform_owner),
 ):
+    if settings.ENVIRONMENT == "production" and request.url.scheme != "https":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="HTTPS required in production environment.",
+        )
+    response.headers["Cache-Control"] = "no-store"
     try:
         tenant_oid = PydanticObjectId(tenant_id)
         admin_oid = PydanticObjectId(admin_id)
@@ -389,9 +439,16 @@ async def reset_tenant_admin_password(
 @router.post("/tenants", status_code=status.HTTP_201_CREATED)
 async def onboard_tenant(
     request: Request,
+    response: Response,
     body: OnboardTenantRequest,
     owner: User = Depends(require_platform_owner),
 ):
+    if settings.ENVIRONMENT == "production" and request.url.scheme != "https":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="HTTPS required in production environment.",
+        )
+    response.headers["Cache-Control"] = "no-store"
     try:
         result = await OnboardingService.create_tenant(
             owner=owner,
@@ -455,7 +512,7 @@ async def update_tenant_status(
         raise HTTPException(status_code=404, detail="Tenant not found")
 
     before = {"tenant_status": tenant.tenant_status}
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     update = {"tenant_status": body.status}
 
     if body.status == "suspended":
@@ -528,7 +585,7 @@ async def update_tenant_plan(
     }
     if body.trial_days is not None:
         from datetime import timedelta
-        update["trial_ends_at"] = datetime.utcnow() + timedelta(days=body.trial_days)
+        update["trial_ends_at"] = datetime.now(timezone.utc) + timedelta(days=body.trial_days)
     await tenant.set(update)
     tenant = await Tenant.get(oid)
 
@@ -660,5 +717,5 @@ async def system_health(owner: User = Depends(require_platform_owner)):
         "status": "healthy",
         "mongo": "up",
         "owner_count": await User.find(User.role == UserRole.PLATFORM_OWNER).count(),
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }

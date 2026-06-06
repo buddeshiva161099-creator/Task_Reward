@@ -9,7 +9,7 @@ collections on `tenant_id`.
 """
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -54,7 +54,7 @@ class Tenant(Document):
     max_employees: int = Field(default=50)
     storage_used_mb: float = Field(default=0.0)
     onboarded_by_owner_id: Optional[PydanticObjectId] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     task_priority_points: dict[str, float] = Field(default={
         "critical": 10.0,

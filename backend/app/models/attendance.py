@@ -21,7 +21,7 @@ from typing import Optional, Dict, List
 
 class Attendance(Document):
     user_id: PydanticObjectId
-    tenant_id: PydanticObjectId
+    tenant_id: Optional[PydanticObjectId] = None
     business_unit_id: Optional[PydanticObjectId] = None
     check_in: datetime = Field(default_factory=utc_now)
     check_out: Optional[datetime] = None
@@ -41,7 +41,15 @@ class Attendance(Document):
 
     class Settings:
         name = "attendance"
-        indexes = ["user_id", "tenant_id", "business_unit_id", "check_in", ("tenant_id", "check_in")]
+        indexes = [
+            "user_id",
+            "tenant_id",
+            "business_unit_id",
+            "check_in",
+            ("tenant_id", "check_in"),
+            ("user_id", "check_in"),
+            ("tenant_id", "business_unit_id", "check_in")
+        ]
 
     class Config:
         json_schema_extra = {

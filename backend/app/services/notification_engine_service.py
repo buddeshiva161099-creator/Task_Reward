@@ -7,7 +7,7 @@ from app.models.user import User
 from app.services.notification_service import NotificationService
 from beanie import PydanticObjectId
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ class NotificationEngineService:
                         user_id=user_id,
                         channel="in_app",
                         status="delivered",
-                        sent_at=datetime.utcnow()
+                        sent_at=datetime.now(timezone.utc)
                     )
                     await log.insert()
                     logs.append(log)
@@ -171,7 +171,7 @@ class NotificationEngineService:
                     user_id=user_id,
                     channel=channel,
                     status="delivered",
-                    sent_at=datetime.utcnow(),
+                    sent_at=datetime.now(timezone.utc),
                     error_message=f"Mocked {channel.upper()} delivery successfully."
                 )
                 await log.insert()

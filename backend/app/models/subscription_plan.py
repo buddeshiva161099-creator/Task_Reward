@@ -6,7 +6,7 @@ display metadata. Tenants reference a plan via Company.subscription_plan_id.
 """
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 
 
@@ -25,7 +25,7 @@ class SubscriptionPlan(Document):
     is_default: bool = Field(default=False)
     feature_flags: List[str] = Field(default_factory=list)
     sort_order: int = Field(default=0)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
 
     class Settings:

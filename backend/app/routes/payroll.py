@@ -1,4 +1,4 @@
-﻿from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from app.models.user import User, UserRole
 from app.models.payroll import Payroll, SalaryStructure, PayrollStatus
 from app.models.activity_log import ActivityLog
@@ -10,8 +10,10 @@ from pydantic import BaseModel
 from typing import List, Optional
 from beanie import PydanticObjectId
 from beanie.operators import Or, In
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.utils.ist_time import to_utc_iso
+from app.models.tenant import Tenant
+from app.models.holiday import Holiday
 
 router = APIRouter(prefix="/payroll", tags=["Payroll Management"])
 
@@ -48,21 +50,11 @@ class RunPayrollRequest(BaseModel):
     employee_id: Optional[str] = None
 
 
-async def calculate_corporate_payroll(
-    employee: User,
-    month: str,
-    drafted_by_id: Optional[PydanticObjectId] = None,
-    drafted_by_name: Optional[str] = None,
-    force: bool = False
-) -> Payroll:
-    from app.models.tenant import Tenant
-    from app.models.attendance import Attendance, IST
-    from app.models.holiday import Holiday
-    from app.models.leave import Leave, LeaveStatus
-    from app.models.regularization import AttendanceRegularization, RegularizationStatus
-    from datetime import timezone
 
-    # 1. Parse Month/Year
+def _get_payroll_month_range(month: str):
+    """Parse month string and return start/end of month datetimes in UTC and total days."""
+    from app.models.attendance import IST
+    from datetime import timezone, datetime, timedelta
     try:
         year, month_num = map(int, month.split("-"))
     except Exception:
@@ -77,25 +69,28 @@ async def calculate_corporate_payroll(
     start_of_month = start_of_month_ist.astimezone(timezone.utc)
     end_of_month = end_of_month_ist.astimezone(timezone.utc)
     total_days_in_month = (end_of_month_ist.date() - start_of_month_ist.date()).days + 1
+    return start_of_month, end_of_month, total_days_in_month, start_of_month_ist, end_of_month_ist
 
-    # 2. Join Date Check
+
+def _calculate_active_window(joining_date_str: str | None, start_of_month: datetime, end_of_month: datetime, total_days_in_month: int):
+    """Determine employee active window for proration based on joining date."""
+    from app.models.attendance import IST
+    from datetime import timezone, datetime
     joining_date = None
-    if employee.hiring_date:
+    if joining_date_str:
         try:
-            joining_date = datetime.strptime(employee.hiring_date, "%Y-%m-%d").replace(tzinfo=IST)
+            joining_date = datetime.strptime(joining_date_str, "%Y-%m-%d").replace(tzinfo=IST)
         except Exception:
             pass
     
-    # If no hiring date is configured, assume they joined before this month (no active window limit)
     if not joining_date:
         joining_date_utc = start_of_month
     else:
         joining_date_utc = joining_date.astimezone(timezone.utc)
 
     if joining_date_utc > end_of_month:
-        raise ValueError(f"Employee {employee.name} joined after the selected month ({month}).")
+        raise ValueError("Employee joined after the selected month.")
 
-    # 3. Active window proration (always covers the full month cycle: 1st of the month to the last date of that month)
     active_start_date_utc = start_of_month
     active_end_date_utc = end_of_month
     
@@ -104,36 +99,27 @@ async def calculate_corporate_payroll(
     
     active_days = (active_end_date.date() - active_start_date.date()).days + 1
     is_prorated = active_days < total_days_in_month
+    return active_start_date, active_end_date, active_days, is_prorated
 
-    # 4. Fetch Salary Structure
-    structure = await SalaryStructure.find_one(SalaryStructure.user_id == employee.id)
-    if not structure:
-        raise ValueError(f"Salary structure not configured.")
 
-    # 5. Fetch Tenant & Holidays
-    tenant = await Tenant.get(employee.tenant_id) if employee.tenant_id else None
-    if not tenant:
-        tenant = await Tenant.find_one(Tenant.is_active == True)
-
-    holidays_list = await Holiday.find(
-        Holiday.date >= start_of_month,
-        Holiday.date <= end_of_month,
-        Or(Holiday.tenant_id == employee.tenant_id, Holiday.tenant_id == None)
-    ).to_list() if tenant else []
-    holiday_dates = {h.date.astimezone(IST).date() for h in holidays_list}
-
-    # 6. Count working days, weekends, holidays in active window
+def _count_working_days(active_start_date, active_end_date, work_days, holiday_dates):
+    """Count total working days in active window."""
+    from datetime import timedelta
     total_working_days = 0
     holidays_weekends = 0
-    
-    # Pre-build lowercase workdays set for dynamic weekend check based on tenant settings
-    work_days_set = {d.strip().lower() for d in tenant.work_days} if (tenant and tenant.work_days) else None
+    work_days_set = {d.strip().lower() for d in work_days} if work_days else None
 
     cur_day = active_start_date
     while cur_day.date() <= active_end_date.date():
         cur_date = cur_day.date()
-        day_name_lower = cur_date.strftime("%A").lower()
-        is_weekend = (day_name_lower not in work_days_set) if work_days_set is not None else (cur_date.weekday() >= 5)
+        day_name_lower = cur_date.strftime("%a").lower()
+        # Handle full name check (e.g. monday) and abbreviation check (e.g. mon)
+        day_full_lower = cur_date.strftime("%A").lower()
+        is_weekend = False
+        if work_days_set is not None:
+            is_weekend = (day_name_lower not in work_days_set) and (day_full_lower not in work_days_set)
+        else:
+            is_weekend = cur_date.weekday() >= 5
         is_holiday = cur_date in holiday_dates
         
         if is_weekend or is_holiday:
@@ -141,6 +127,63 @@ async def calculate_corporate_payroll(
         else:
             total_working_days += 1
         cur_day += timedelta(days=1)
+    return total_working_days, holidays_weekends
+
+
+async def calculate_corporate_payroll(
+    employee: User,
+    month: str,
+    drafted_by_id: Optional[PydanticObjectId] = None,
+    drafted_by_name: Optional[str] = None,
+    force: bool = False,
+    tenant: Optional[Tenant] = None,
+    holidays_list: Optional[List[Holiday]] = None
+) -> Payroll:
+    from app.models.tenant import Tenant
+    from app.models.attendance import Attendance, IST
+    from app.models.holiday import Holiday
+    from app.models.leave import Leave, LeaveStatus
+    from app.models.regularization import AttendanceRegularization, RegularizationStatus
+    from datetime import timezone
+
+    # 1. Parse Month/Year
+    start_of_month, end_of_month, total_days_in_month, start_of_month_ist, end_of_month_ist = _get_payroll_month_range(month)
+
+    # 2 & 3. Active window proration
+    try:
+        active_start_date, active_end_date, active_days, is_prorated = _calculate_active_window(
+            employee.hiring_date, start_of_month, end_of_month, total_days_in_month
+        )
+    except ValueError:
+        raise ValueError(f"Employee {employee.name} joined after the selected month ({month}).")
+
+    # 4. Fetch Salary Structure
+    structure = await SalaryStructure.find_one(SalaryStructure.user_id == employee.id)
+    if not structure:
+        raise ValueError(f"Salary structure not configured.")
+
+    # 5. Fetch Tenant & Holidays
+    if not tenant:
+        from app.models.policy import PolicyVersion
+        if employee.tenant_id:
+            tenant = await PolicyVersion.get_active_policy(employee.tenant_id, end_of_month)
+            if not tenant:
+                tenant = await Tenant.get(employee.tenant_id)
+        if not tenant:
+            tenant = await Tenant.find_one(Tenant.is_active == True)
+
+    if holidays_list is None:
+        holidays_list = await Holiday.find(
+            Holiday.date >= start_of_month,
+            Holiday.date <= end_of_month,
+            Or(Holiday.tenant_id == employee.tenant_id, Holiday.tenant_id == None)
+        ).to_list() if tenant else []
+    holiday_dates = {h.date.astimezone(IST).date() for h in holidays_list}
+
+    # 6. Count working days, weekends, holidays in active window
+    total_working_days, holidays_weekends = _count_working_days(
+        active_start_date, active_end_date, tenant.work_days if tenant else None, holiday_dates
+    )
 
     # 7. Fetch Attendance Logs & Leaves in the month
     attendance_logs = await Attendance.find(
@@ -325,16 +368,15 @@ async def calculate_corporate_payroll(
             
             # Calculate Performance Incentive
             from app.models.task import Task, TaskStatus
-            role_targets = {
-                UserRole.MANAGER: 200.0,
-                UserRole.ASSISTANT_MANAGER: 190.0,
-                UserRole.HR_MANAGER: 152.0,
-                UserRole.EMPLOYEE: 200.0,
-            }
-            if employee.name == "Shiva":
-                role_targets[UserRole.EMPLOYEE] = 148.2
-                
-            target_pts = role_targets.get(employee.role, 150.0)
+            target_pts = getattr(employee, "performance_target", None)
+            if target_pts is None:
+                role_targets = {
+                    UserRole.MANAGER: 200.0,
+                    UserRole.ASSISTANT_MANAGER: 190.0,
+                    UserRole.HR_MANAGER: 152.0,
+                    UserRole.EMPLOYEE: 200.0,
+                }
+                target_pts = role_targets.get(employee.role, 150.0)
             perf_score = (employee.reward_points / target_pts) * 100.0 if target_pts > 0 else 0.0
             
             # Match performance to tier
@@ -372,7 +414,7 @@ async def calculate_corporate_payroll(
         history = PayrollHistory(
             payroll_id=existing.id,
             version_number=existing.version_number,
-            payroll_snapshot=existing.dict(exclude={"id", "created_at", "updated_at", "version_number", "recalculation_required"}),
+            payroll_snapshot=existing.model_dump(exclude={"id", "created_at", "updated_at", "version_number", "recalculation_required"}),
             reason_for_change="Recalculated based on latest approved attendance/leave data.",
             created_by=drafted_by_id
         )
@@ -437,7 +479,7 @@ async def configure_salary_structure(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
 
     if hr_mgr.role != UserRole.ADMIN:
-        from app.routes.employees import get_visible_employee_ids
+        from app.services.user_service import get_visible_employee_ids
         visible_ids = await get_visible_employee_ids(hr_mgr)
         if visible_ids is not None and user_id not in visible_ids:
             raise HTTPException(
@@ -455,7 +497,7 @@ async def configure_salary_structure(
     structure.pf_deduction = request.pf_deduction
     structure.esi_deduction = request.esi_deduction
     structure.tax_deduction = request.tax_deduction
-    structure.updated_at = datetime.utcnow()
+    structure.updated_at = datetime.now(timezone.utc)
     await structure.save()
 
     employee.salary_structure_id = structure.id
@@ -474,7 +516,7 @@ async def get_salary_structure(user_id: str, current_user: User = Depends(get_cu
             pass
         elif current_user.role in [UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
                                     UserRole.MANAGER, UserRole.ASSISTANT_MANAGER]:
-            from app.routes.employees import get_visible_employee_ids
+            from app.services.user_service import get_visible_employee_ids
             visible_ids = await get_visible_employee_ids(current_user)
             if visible_ids is not None and uid not in visible_ids:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
@@ -513,7 +555,7 @@ async def create_payroll_draft(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
 
     if hr_user.role != UserRole.ADMIN:
-        from app.routes.employees import get_visible_employee_ids
+        from app.services.user_service import get_visible_employee_ids
         visible_ids = await get_visible_employee_ids(hr_user)
         if visible_ids is not None and uid not in visible_ids:
             raise HTTPException(
@@ -564,7 +606,7 @@ async def run_payroll_engine(
 ):
     """Run payroll processing for matching scope (Tenant, Department, Employee). When a
     business unit is active, only employees within that unit are processed."""
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_user)
 
     query = {
@@ -594,10 +636,34 @@ async def run_payroll_engine(
     missing_attendance = []
 
     # Pre-compute month boundaries once (not inside the loop)
-    from app.models.attendance import Attendance
+    from app.models.attendance import Attendance, IST
     year, month_num = map(int, request.month.split("-"))
-    attn_start = datetime(year, month_num, 1)
-    attn_end = datetime(year + 1, 1, 1) if month_num == 12 else datetime(year, month_num + 1, 1)
+    attn_start_ist = datetime(year, month_num, 1, tzinfo=IST)
+    if month_num == 12:
+        attn_end_ist = datetime(year + 1, 1, 1, tzinfo=IST)
+    else:
+        attn_end_ist = datetime(year, month_num + 1, 1, tzinfo=IST)
+    attn_start = attn_start_ist.astimezone(timezone.utc)
+    attn_end = attn_end_ist.astimezone(timezone.utc)
+    
+    # Pre-fetch tenant & holidays once to avoid N+1 queries
+    from app.models.tenant import Tenant
+    from app.models.holiday import Holiday
+    from app.models.policy import PolicyVersion
+    
+    tenant = None
+    if request.tenant_id:
+        tenant = await PolicyVersion.get_active_policy(PydanticObjectId(request.tenant_id), attn_end)
+        if not tenant:
+            tenant = await Tenant.get(PydanticObjectId(request.tenant_id))
+    if not tenant:
+        tenant = await Tenant.find_one(Tenant.is_active == True)
+        
+    holidays_list = await Holiday.find(
+        Holiday.date >= attn_start,
+        Holiday.date <= attn_end,
+        Or(Holiday.tenant_id == tenant.id, Holiday.tenant_id == None)
+    ).to_list() if tenant else []
     
     # Pre-fetch attendance counts to avoid N+1 queries
     employee_ids = [e.id for e in employees]
@@ -621,7 +687,9 @@ async def run_payroll_engine(
                 employee=emp,
                 month=request.month,
                 drafted_by_id=hr_user.id,
-                drafted_by_name=hr_user.name
+                drafted_by_name=hr_user.name,
+                tenant=tenant,
+                holidays_list=holidays_list
             )
             if payroll:
                 total_processed += 1
@@ -673,7 +741,7 @@ async def mark_payroll_paid(
         )
         
     payroll.status = PayrollStatus.PAID
-    payroll.updated_at = datetime.utcnow()
+    payroll.updated_at = datetime.now(timezone.utc)
     await payroll.save()
     
     await AuditService.log_event(
@@ -716,7 +784,7 @@ async def get_payroll_summary(
 ):
     """Get payroll stats summary for management dashboard. When a business unit is
     active, only payrolls belonging to that unit are aggregated."""
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     cid = require_tenant_id(user)
     visible_ids = await get_visible_employee_ids(user)
 
@@ -745,31 +813,43 @@ async def get_payroll_summary(
             status_counts[val] += 1
 
     # Monthly Payout Trend (last 6 months)
-    trend = []
     try:
         year, month_num = map(int, month.split("-"))
     except Exception:
-        year, month_num = datetime.utcnow().year, datetime.utcnow().month
+        now_utc = datetime.now(timezone.utc)
+        year, month_num = now_utc.year, now_utc.month
 
-    base_date = datetime(year, month_num, 1)
+    trend_months = []
     for i in range(5, -1, -1):
-        # Subtract months
         m_num = month_num - i
         y_num = year
         while m_num <= 0:
             m_num += 12
             y_num -= 1
-        m_str = f"{y_num}-{m_num:02d}"
+        trend_months.append(f"{y_num}-{m_num:02d}")
 
-        sub_conds = [Payroll.month == m_str, Payroll.tenant_id == cid]
-        if visible_ids is not None:
-            sub_conds.append(In(Payroll.user_id, list(visible_ids)))
-        if active_bu_id is not None:
-            sub_conds.append(Payroll.business_unit_id == active_bu_id)
-        sub_payrolls = await Payroll.find(*sub_conds).to_list()
+    # Build single aggregation query to group and sum net_salary by month
+    match_stage = {
+        "tenant_id": cid,
+        "month": {"$in": trend_months}
+    }
+    if visible_ids is not None:
+        match_stage["user_id"] = {"$in": list(visible_ids)}
+    if active_bu_id is not None:
+        match_stage["business_unit_id"] = active_bu_id
+
+    agg_res = await Payroll.aggregate([
+        {"$match": match_stage},
+        {"$group": {"_id": "$month", "total_payout": {"$sum": "$net_salary"}}}
+    ]).to_list()
+
+    payout_map = {item["_id"]: item["total_payout"] for item in agg_res}
+    
+    trend = []
+    for m_str in trend_months:
         trend.append({
             "month": m_str,
-            "payout": sum(p.net_salary for p in sub_payrolls)
+            "payout": payout_map.get(m_str, 0.0)
         })
 
     return {
@@ -787,7 +867,7 @@ async def get_pending_payrolls(
 ):
     """List payroll runs. Filters by hierarchy for non-Admin roles. When a business
     unit is active, only payrolls belonging to that unit are returned."""
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     cid = require_tenant_id(user)
 
     visible_ids = await get_visible_employee_ids(user)
@@ -849,7 +929,7 @@ async def review_payroll(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payroll record not found")
 
     if hr_mgr.role != UserRole.ADMIN:
-        from app.routes.employees import get_visible_employee_ids
+        from app.services.user_service import get_visible_employee_ids
         visible_ids = await get_visible_employee_ids(hr_mgr)
         if visible_ids is not None and payroll.user_id not in visible_ids:
             raise HTTPException(
@@ -867,7 +947,7 @@ async def review_payroll(
     payroll.status = PayrollStatus.UNDER_REVIEW
     payroll.reviewed_by = hr_mgr.id
     payroll.reviewed_by_name = hr_mgr.name
-    payroll.updated_at = datetime.utcnow()
+    payroll.updated_at = datetime.now(timezone.utc)
     await payroll.save()
 
     await AuditService.log_event(
@@ -914,7 +994,7 @@ async def approve_payroll(
     payroll.status = PayrollStatus.LOCKED
     payroll.approved_by = admin.id
     payroll.approved_by_name = admin.name
-    payroll.updated_at = datetime.utcnow()
+    payroll.updated_at = datetime.now(timezone.utc)
     await payroll.save()
 
     await AuditService.log_event(
@@ -965,7 +1045,7 @@ async def manual_recalculate_payroll(
 
     # Only HR team/admins can recalculate
     if admin.role != UserRole.ADMIN:
-        from app.routes.employees import get_visible_employee_ids
+        from app.services.user_service import get_visible_employee_ids
         visible_ids = await get_visible_employee_ids(admin)
         if visible_ids is not None and payroll.user_id not in visible_ids:
             raise HTTPException(
@@ -1068,7 +1148,7 @@ async def get_payroll_history(
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
         if current_user.role != UserRole.ADMIN:
-            from app.routes.employees import get_visible_employee_ids
+            from app.services.user_service import get_visible_employee_ids
             visible_ids = await get_visible_employee_ids(current_user)
             if visible_ids is not None and payroll.user_id not in visible_ids:
                  raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
@@ -1106,7 +1186,7 @@ async def unlock_payroll(
     payroll.status = PayrollStatus.DRAFT
     payroll.approved_by = None
     payroll.approved_by_name = None
-    payroll.updated_at = datetime.utcnow()
+    payroll.updated_at = datetime.now(timezone.utc)
     await payroll.save()
 
     # Log audit entry for unlock action

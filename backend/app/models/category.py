@@ -3,7 +3,7 @@ Category model for MongoDB categories collection.
 """
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -13,7 +13,7 @@ class Category(Document):
     name: str = Field(..., min_length=1, max_length=100)
     color: str = Field(default="#6366f1")  # Default indigo color
     is_active: bool = True
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
 
     class Settings:

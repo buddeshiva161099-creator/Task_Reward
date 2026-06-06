@@ -1,6 +1,6 @@
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 
 class AuditEvent(Document):
@@ -16,7 +16,7 @@ class AuditEvent(Document):
     before_state: Optional[dict[str, Any]] = None
     after_state: Optional[dict[str, Any]] = None
 
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     correlation_id: Optional[str] = None
 
     ip_address: Optional[str] = None

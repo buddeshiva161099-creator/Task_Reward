@@ -36,7 +36,7 @@ async def create_task(
     """Create a new task. Supports multiple assignees, multiple tenants, and recurrence.
     The task is stamped with the active business unit (or the assignee's, or the
     creator's) so the task is visible only inside the matching unit context."""
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(current_user)
     
     # 1. Determine target employees
@@ -50,7 +50,10 @@ async def create_task(
                     User.is_active == True,
                 ).to_list()
             else:
-                target_employees = await User.find(User.is_active == True).to_list()
+                target_employees = await User.find(
+                    User.is_active == True,
+                    User.tenant_id == current_user.tenant_id
+                ).to_list() if current_user.tenant_id else []
         elif current_user.role == UserRole.ASSISTANT_MANAGER:
             if visible_ids is not None:
                 target_employees = await User.find(
@@ -58,13 +61,17 @@ async def create_task(
                     User.is_active == True,
                 ).to_list()
             else:
-                target_employees = await User.find(User.is_active == True).to_list()
+                target_employees = await User.find(
+                    User.is_active == True,
+                    User.tenant_id == current_user.tenant_id
+                ).to_list() if current_user.tenant_id else []
         else:
             target_employees = await User.find(
                 In(User.role, [UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
                                UserRole.MANAGER, UserRole.ASSISTANT_MANAGER, UserRole.EMPLOYEE]),
-                User.is_active == True
-            ).to_list()
+                User.is_active == True,
+                User.tenant_id == current_user.tenant_id
+            ).to_list() if current_user.tenant_id else []
     elif request.assigned_to_list:
         target_employees = await User.find(In(User.id, [PydanticObjectId(uid) for uid in request.assigned_to_list])).to_list()
     elif request.assigned_to:
@@ -231,7 +238,7 @@ async def list_tasks(
 ):
     """Get tasks. Admins see all; managers/employees see according to hierarchy.
     When a business unit is active, the result is narrowed to that unit only."""
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
 
     visible_ids = await get_visible_employee_ids(current_user)
     tenant_cid = require_tenant_id(current_user)
@@ -360,7 +367,7 @@ async def update_task(
                 )
         else:
             # It's a management role. Check hierarchy
-            from app.routes.employees import get_visible_employee_ids
+            from app.services.user_service import get_visible_employee_ids
             visible_ids = await get_visible_employee_ids(current_user)
             if visible_ids is not None and PydanticObjectId(db_task.assigned_to) not in visible_ids:
                 raise HTTPException(
@@ -370,7 +377,7 @@ async def update_task(
 
     # Check hierarchy of new assignee if being reassigned
     if request.assigned_to and current_user.role != UserRole.ADMIN:
-        from app.routes.employees import get_visible_employee_ids
+        from app.services.user_service import get_visible_employee_ids
         visible_ids = await get_visible_employee_ids(current_user)
         allowed_ref_ids = (visible_ids or set()) | {current_user.id}
         if PydanticObjectId(request.assigned_to) not in allowed_ref_ids:
@@ -475,7 +482,7 @@ async def delete_task(
     elif db_task.created_by == current_user.id:
         allowed = True
     elif current_user.role in [UserRole.MANAGER, UserRole.ASSISTANT_MANAGER, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER]:
-        from app.routes.employees import get_visible_employee_ids
+        from app.services.user_service import get_visible_employee_ids
         visible_ids = await get_visible_employee_ids(current_user)
         if visible_ids is not None and PydanticObjectId(db_task.assigned_to) in visible_ids:
             allowed = True

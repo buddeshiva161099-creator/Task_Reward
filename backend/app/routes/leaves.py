@@ -323,7 +323,7 @@ async def get_pending_leaves(
     cid = require_tenant_id(user)
     query_conditions = [Leave.status != LeaveStatus.APPROVED, Leave.status != LeaveStatus.REJECTED, Leave.tenant_id == cid]
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None:
         query_conditions.append(In(Leave.user_id, list(visible_ids)))
@@ -362,7 +362,7 @@ async def get_all_leaves(
     cid = require_tenant_id(user)
     query_conditions = [Leave.tenant_id == cid]
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None:
         query_conditions.append(In(Leave.user_id, list(visible_ids)))
@@ -402,7 +402,7 @@ async def verify_leave(
     if not leave:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leave request not found")
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_user)
     if visible_ids is not None and leave.user_id not in visible_ids:
         raise HTTPException(
@@ -482,7 +482,7 @@ async def approve_leave(
     if not leave:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leave request not found")
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_manager)
     if visible_ids is not None and leave.user_id not in visible_ids:
         raise HTTPException(
@@ -664,7 +664,7 @@ async def reject_leave(
     if not leave:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Leave request not found")
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_user)
     if visible_ids is not None and leave.user_id not in visible_ids:
         raise HTTPException(

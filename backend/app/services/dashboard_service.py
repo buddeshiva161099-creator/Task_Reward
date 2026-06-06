@@ -60,7 +60,7 @@ async def get_admin_dashboard(
 ):
     """Get admin dashboard analytics data with optimized batch queries and hierarchy filtering."""
     if visible_ids is None:
-        from app.routes.employees import get_visible_employee_ids
+        from app.services.user_service import get_visible_employee_ids
 
         visible_ids = await get_visible_employee_ids(current_user)
 

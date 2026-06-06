@@ -1,4 +1,4 @@
-﻿"""
+"""
 Employee management routes - admin only CRUD operations.
 """
 from fastapi import APIRouter, HTTPException, status, Depends, UploadFile, File, Request
@@ -165,93 +165,7 @@ async def validate_hierarchy_rules(
             )
 
 
-async def get_visible_employee_ids(user: User) -> set:
-    """
-    Returns a set of PydanticObjectIds of all employees visible to the given manager/HR.
-    - Admin: returns None (unlimited visibility).
-    - Manager: AMs reporting to them, Employees reporting to those AMs, and AHRMs reporting to them.
-      If `scope_company_ids` is set, the visible set is further restricted to users whose
-      `primary_company_id` is in that set.
-    - HR Manager: AHRMs reporting to them, Employees reporting to those AHRMs, and AMs reporting to them.
-    - Assistant Manager: Employees reporting to them.
-    - Assistant HR Manager: Employees reporting to them.
-    - Employee: Only themselves.
-    """
-    if user.role == UserRole.ADMIN:
-        return None
-
-    visible_ids = {user.id}
-
-    # Per-Company manager delegation: when a manager has `scope_company_ids` set,
-    # they can only see users whose primary_company_id is in that set.
-    scope_company_ids = set(user.scope_company_ids or [])
-
-    # Optimization: Use database-level distinct() for faster lookups without full document loading.
-    if user.role == UserRole.MANAGER:
-        # Performance optimization: Targeted DB queries instead of full scan
-        # Get AMs and AHRMs reporting to this Manager
-        sub_managers = await User.find(
-            User.reporting_manager_id == user.id,
-            In(User.role, [UserRole.ASSISTANT_MANAGER, UserRole.ASSISTANT_HR_MANAGER])
-        ).to_list()
-
-        am_ids = []
-        for u in sub_managers:
-            visible_ids.add(u.id)
-            if u.role == UserRole.ASSISTANT_MANAGER:
-                am_ids.append(u.id)
-
-        if am_ids:
-            # Employees reporting to those AMs
-            emp_ids = await User.find(
-                User.role == UserRole.EMPLOYEE,
-                In(User.reporting_manager_id, am_ids)
-            ).project({"_id": 1}).to_list()
-            visible_ids.update(e["_id"] for e in emp_ids)
-
-    elif user.role == UserRole.HR_MANAGER:
-        # Get AHRMs and AMs reporting to this HR Manager
-        sub_managers = await User.find(
-            User.hr_reporting_manager_id == user.id,
-            In(User.role, [UserRole.ASSISTANT_HR_MANAGER, UserRole.ASSISTANT_MANAGER])
-        ).to_list()
-
-        ahrm_ids = []
-        for u in sub_managers:
-            visible_ids.add(u.id)
-            if u.role == UserRole.ASSISTANT_HR_MANAGER:
-                ahrm_ids.append(u.id)
-
-        if ahrm_ids:
-            # Employees reporting to those AHRMs
-            emp_ids = await User.find(
-                User.role == UserRole.EMPLOYEE,
-                In(User.hr_reporting_manager_id, ahrm_ids)
-            ).project({"_id": 1}).to_list()
-            visible_ids.update(e["_id"] for e in emp_ids)
-
-    elif user.role == UserRole.ASSISTANT_MANAGER:
-        emp_ids = await User.find(
-            User.role == UserRole.EMPLOYEE,
-            User.reporting_manager_id == user.id
-        ).project({"_id": 1}).to_list()
-        visible_ids.update(e["_id"] for e in emp_ids)
-
-    elif user.role == UserRole.ASSISTANT_HR_MANAGER:
-        emp_ids = await User.find(
-            User.role == UserRole.EMPLOYEE,
-            User.hr_reporting_manager_id == user.id
-        ).project({"_id": 1}).to_list()
-        visible_ids.update(e["_id"] for e in emp_ids)
-
-    if scope_company_ids:
-        scoped_users = await User.find(
-            In(User.id, list(visible_ids)),
-            In(User.primary_company_id, list(scope_company_ids))
-        ).project({"_id": 1}).to_list()
-        visible_ids = {u["_id"] for u in scoped_users}
-
-    return visible_ids
+from app.services.user_service import get_visible_employee_ids
 
 
 # ────────────────────────────────────────────────────────
@@ -264,13 +178,14 @@ async def upload_identity_document(
     user: User = Depends(require_management_team),
 ):
     """Upload a validated identity document file for an employee."""
+    tenant_sub = f"tenant_{user.tenant_id}" if user.tenant_id else "global"
     filename, size = await save_upload_file(
         file=file,
-        upload_dir="uploads/identity_docs",
+        upload_dir=f"uploads/identity_docs/{tenant_sub}",
         allowed_content_types=IDENTITY_ALLOWED_CONTENT_TYPES,
     )
 
-    return {"url": f"/uploads/identity_docs/{filename}", "filename": filename, "size": size}
+    return {"url": f"/uploads/identity_docs/{tenant_sub}/{filename}", "filename": filename, "size": size}
 
 
 
@@ -500,6 +415,12 @@ async def update_employee(
     target_employee = await user_service.get_employee_by_id(employee_id)
     if not target_employee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
+
+    if user.tenant_id is not None and target_employee.tenant_id != user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Employee belongs to a different tenant/company.",
+        )
 
     before_state = target_employee.model_dump(exclude={"password_hash"})
     visible_ids = await get_visible_employee_ids(user)

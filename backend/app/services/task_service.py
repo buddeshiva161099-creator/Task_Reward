@@ -119,6 +119,15 @@ async def get_tasks(
     `business_unit_id` is also provided, only tasks in that unit are returned
     (otherwise tasks in *any* unit of the tenant are returned).
     """
+    if user_ids is not None:
+        user_ids = [PydanticObjectId(uid) for uid in user_ids]
+    if created_by is not None:
+        created_by = PydanticObjectId(created_by)
+    if tenant_id is not None:
+        tenant_id = PydanticObjectId(tenant_id)
+    if business_unit_id is not None:
+        business_unit_id = PydanticObjectId(business_unit_id)
+
     query_parts = []
 
     if user_id:

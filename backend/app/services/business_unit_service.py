@@ -168,8 +168,8 @@ async def update_business_unit(
             BusinessUnit.id != unit_id,
         ).update_many({"$set": {"is_default": False}})
 
-    from datetime import datetime
-    patch["updated_at"] = datetime.utcnow()
+    from datetime import datetime, timezone
+    patch["updated_at"] = datetime.now(timezone.utc)
     await unit.update({"$set": patch})
     return await get_business_unit(tenant_id, unit_id)
 
@@ -181,15 +181,15 @@ async def deactivate_business_unit(tenant_id: PydanticObjectId, unit_id: Pydanti
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot deactivate the default business unit.",
         )
-    from datetime import datetime
-    await unit.update({"$set": {"is_active": False, "updated_at": datetime.utcnow()}})
+    from datetime import datetime, timezone
+    await unit.update({"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}})
     return unit
 
 
 async def activate_business_unit(tenant_id: PydanticObjectId, unit_id: PydanticObjectId) -> BusinessUnit:
     unit = await get_business_unit(tenant_id, unit_id, include_inactive=True)
-    from datetime import datetime
-    await unit.update({"$set": {"is_active": True, "updated_at": datetime.utcnow()}})
+    from datetime import datetime, timezone
+    await unit.update({"$set": {"is_active": True, "updated_at": datetime.now(timezone.utc)}})
     return unit
 
 

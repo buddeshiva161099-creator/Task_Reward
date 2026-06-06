@@ -23,20 +23,20 @@ async def seed(email: str, password: str, name: str, reset_password: bool):
     client = AsyncMongoClient(settings.MONGODB_URL)
     database = client[settings.DATABASE_NAME]
 
-    from app.models.company import Company
+    from app.models.tenant import Tenant
     from app.models.subscription_plan import SubscriptionPlan
     from app.models.platform_audit_log import PlatformAuditLog
 
     await init_beanie(
         database=database,
-        document_models=[User, Company, SubscriptionPlan, PlatformAuditLog],
+        document_models=[User, Tenant, SubscriptionPlan, PlatformAuditLog],
     )
 
     existing = await User.find_one(User.email == email)
     if existing:
         if existing.role != UserRole.PLATFORM_OWNER:
             existing.role = UserRole.PLATFORM_OWNER
-            existing.company_id = None
+            existing.tenant_id = None
             existing.is_platform_owner = True
             existing.is_active = True
         if reset_password:
@@ -51,7 +51,7 @@ async def seed(email: str, password: str, name: str, reset_password: bool):
         email=email,
         password_hash=hash_password(password),
         role=UserRole.PLATFORM_OWNER,
-        company_id=None,
+        tenant_id=None,
         is_platform_owner=True,
         is_active=True,
         must_change_password=False,

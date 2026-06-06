@@ -1,6 +1,6 @@
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -14,7 +14,7 @@ class LeaveBalance(Document):
     sick_used: int = Field(default=0)
     earned_allocated: int = Field(default=15)
     earned_used: int = Field(default=0)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "leave_balances"

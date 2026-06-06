@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from app.utils.ist_time import to_utc_iso
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
@@ -245,7 +245,7 @@ async def update_chat_group(
                 continue
         group.members = list(member_ids)
 
-    group.updated_at = datetime.utcnow()
+    group.updated_at = datetime.now(timezone.utc)
     await group.save()
     return {
         "message": "Group updated successfully",
@@ -300,6 +300,14 @@ async def get_chat_history(
     else:
         # Direct 1-on-1 chat query: sender=current & recipient=other OR vice-versa
         other_uid = PydanticObjectId(recipient_id)
+        other_user = await User.get(other_uid)
+        if not other_user or other_user.is_deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found.")
+        if other_user.tenant_id != current_user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Recipient belongs to a different tenant/company."
+            )
         query["$or"] = [
             {"sender_id": current_user.id, "recipient_id": other_uid},
             {"sender_id": other_uid, "recipient_id": current_user.id}
@@ -359,6 +367,18 @@ async def send_chat_message(
     g_id = PydanticObjectId(request.group_id) if request.group_id else None
     r_id = PydanticObjectId(request.recipient_id) if request.recipient_id else None
     t_id = PydanticObjectId(request.task_card_id) if request.task_card_id else None
+
+    if g_id:
+        await ensure_group_member(g_id, current_user)
+    elif r_id:
+        recipient = await User.get(r_id)
+        if not recipient or recipient.is_deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipient not found.")
+        if recipient.tenant_id != current_user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Recipient belongs to a different tenant/company."
+            )
 
     msg = ChatMessage(
         group_id=g_id,
@@ -425,28 +445,39 @@ async def mark_messages_as_read(
     collection = ChatMessage.get_motor_collection()
 
     if request.group_id:
+        group_obj_id = PydanticObjectId(request.group_id)
+        await ensure_group_member(group_obj_id, current_user)
         query = {
-            "group_id": PydanticObjectId(request.group_id),
+            "group_id": group_obj_id,
             "sender_id": {"$ne": current_user.id},
             "read_by": {"$ne": current_user.id}
         }
         # Mark corresponding chat notifications as read
         await Notification.find(
             Notification.user_id == current_user.id,
-            Notification.chat_group_id == PydanticObjectId(request.group_id),
+            Notification.chat_group_id == group_obj_id,
             Notification.type == "chat",
             Notification.is_read == False
         ).update({"$set": {"is_read": True}})
     else:
+        sender_obj_id = PydanticObjectId(request.sender_id)
+        sender = await User.get(sender_obj_id)
+        if not sender or sender.is_deleted:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sender not found.")
+        if sender.tenant_id != current_user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Sender belongs to a different tenant/company."
+            )
         query = {
-            "sender_id": PydanticObjectId(request.sender_id),
+            "sender_id": sender_obj_id,
             "recipient_id": current_user.id,
             "read_by": {"$ne": current_user.id}
         }
         # Mark corresponding chat notifications as read
         await Notification.find(
             Notification.user_id == current_user.id,
-            Notification.sender_id == PydanticObjectId(request.sender_id),
+            Notification.sender_id == sender_obj_id,
             Notification.type == "chat",
             Notification.is_read == False
         ).update({"$set": {"is_read": True}})
@@ -463,13 +494,14 @@ async def upload_chat_attachment(
     current_user: User = Depends(get_current_user)
 ):
     """Upload validated file attachments for sharing inside conversations."""
+    tenant_sub = f"tenant_{current_user.tenant_id}" if current_user.tenant_id else "global"
     filename, size = await save_upload_file(
         file=file,
-        upload_dir="uploads/chat",
+        upload_dir=f"uploads/chat/{tenant_sub}",
         allowed_content_types=CHAT_ALLOWED_CONTENT_TYPES,
     )
     return {
-        "url": f"/uploads/chat/{filename}",
+        "url": f"/uploads/chat/{tenant_sub}/{filename}",
         "name": file.filename,
         "size": size,
     }
@@ -477,7 +509,7 @@ async def upload_chat_attachment(
 @router.post("/presence/heartbeat")
 async def register_presence_heartbeat(current_user: User = Depends(get_current_user)):
     """Keep the current employee's active presence updated in the system."""
-    current_user.last_active = datetime.utcnow()
+    current_user.last_active = datetime.now(timezone.utc)
     await current_user.save()
     return {"status": "heartbeat recorded", "last_active": current_user.last_active.isoformat()}
 

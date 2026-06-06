@@ -1,6 +1,6 @@
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 
 class ChatMessage(Document):
@@ -18,7 +18,7 @@ class ChatMessage(Document):
     deleted_for_everyone: bool = Field(default=False)
     deleted_for_users: List[PydanticObjectId] = Field(default_factory=list)
     read_by: List[PydanticObjectId] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "chat_messages"

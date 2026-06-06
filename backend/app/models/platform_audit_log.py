@@ -6,7 +6,7 @@ the trust trail of every tenant lifecycle change.
 """
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 
 
@@ -26,7 +26,7 @@ class PlatformAuditLog(Document):
 
     ip_address: Optional[str] = None
     user_agent: Optional[str] = None
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "platform_audit_logs"

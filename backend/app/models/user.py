@@ -3,7 +3,7 @@ User model for MongoDB users collection.
 """
 from beanie import Document, PydanticObjectId
 from pydantic import EmailStr, Field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 
@@ -23,6 +23,7 @@ class User(Document):
     email: EmailStr = Field(..., unique=True)
     password_hash: str
     raw_password: Optional[str] = None  # Deprecated: retained only to read legacy documents; never populate.
+    performance_target: Optional[float] = Field(default=None, description="Custom performance target points for payroll calculations")
     role: UserRole = UserRole.EMPLOYEE
     tenant_id: Optional[PydanticObjectId] = None
     primary_company_id: Optional[PydanticObjectId] = None
@@ -41,9 +42,9 @@ class User(Document):
     is_platform_owner: bool = Field(default=False)
     must_change_password: bool = Field(default=False)
     last_login_at: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
-    last_active: datetime = Field(default_factory=datetime.utcnow)
+    last_active: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     identity_card_type: Optional[str] = None
     identity_card_url: Optional[str] = None
@@ -67,6 +68,27 @@ class User(Document):
             ("tenant_id", "business_unit_id"),
             ("tenant_id", "primary_company_id"),
         ]
+
+    def model_dump(self, *args, **kwargs):
+        if kwargs.get("mode") == "json":
+            exclude = kwargs.setdefault("exclude", set())
+            if isinstance(exclude, set):
+                exclude.add("password_hash")
+                exclude.add("raw_password")
+            elif isinstance(exclude, dict):
+                exclude["password_hash"] = True
+                exclude["raw_password"] = True
+        return super().model_dump(*args, **kwargs)
+
+    def model_dump_json(self, *args, **kwargs):
+        exclude = kwargs.setdefault("exclude", set())
+        if isinstance(exclude, set):
+            exclude.add("password_hash")
+            exclude.add("raw_password")
+        elif isinstance(exclude, dict):
+            exclude["password_hash"] = True
+            exclude["raw_password"] = True
+        return super().model_dump_json(*args, **kwargs)
 
     class Config:
         json_schema_extra = {

@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:6.0
+    container_name: vision_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - vision_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vision_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://mongodb:27017
+      - DATABASE_NAME=vision_db
+      - ENVIRONMENT=development
+      - JWT_SECRET=change-this-secret-to-something-secure-in-production
+      - CORS_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+      - ALLOW_PUBLIC_REGISTRATION=True
+    depends_on:
+      - mongodb
+    networks:
+      - vision_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: vision_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    networks:
+      - vision_network
+
+volumes:
+  mongo_data:
+
+networks:
+  vision_network:
+    driver: bridge

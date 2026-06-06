@@ -69,6 +69,9 @@ async def check_in(
     current_user: User = Depends(get_current_user)
 ):
     """Record a check-in with live location and smart validation."""
+    if not current_user.tenant_id:
+        raise HTTPException(status_code=400, detail="User is not associated with any tenant.")
+
     now_utc = datetime.now(timezone.utc)
     now_ist = now_utc.astimezone(IST)
     today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -76,6 +79,7 @@ async def check_in(
     
     existing = await Attendance.find_one(
         Attendance.user_id == current_user.id,
+        Attendance.tenant_id == current_user.tenant_id,
         Attendance.check_in >= today_start,
         Attendance.check_out == None
     )
@@ -83,7 +87,12 @@ async def check_in(
         raise HTTPException(status_code=400, detail="You are already checked in.")
 
     # Get tenant for geofence and policy settings
-    tenant = await Tenant.get(current_user.tenant_id) if current_user.tenant_id else None
+    from app.models.policy import PolicyVersion
+    tenant = None
+    if current_user.tenant_id:
+        tenant = await PolicyVersion.get_active_policy(current_user.tenant_id, now_utc)
+        if not tenant:
+            tenant = await Tenant.get(current_user.tenant_id)
     
     # --- GEOFENCE VALIDATION ---
     distance_from_office = None
@@ -168,7 +177,7 @@ async def check_in(
 
     attendance = Attendance(
         user_id=current_user.id,
-        tenant_id=current_user.tenant_id or current_user.id,
+        tenant_id=current_user.tenant_id,
         business_unit_id=current_user.business_unit_id,
         location_in={"lat": req.lat, "lng": req.lng},
         address_in=req.address,
@@ -208,7 +217,12 @@ async def check_out(
         raise HTTPException(status_code=400, detail="No active check-in session found.")
 
     before_state = attendance.model_dump()
-    tenant = await Tenant.get(current_user.tenant_id) if current_user.tenant_id else None
+    from app.models.policy import PolicyVersion
+    tenant = None
+    if current_user.tenant_id:
+        tenant = await PolicyVersion.get_active_policy(current_user.tenant_id, datetime.now(timezone.utc))
+        if not tenant:
+            tenant = await Tenant.get(current_user.tenant_id)
 
     # --- MINIMUM SESSION DURATION CHECK ---
     if tenant and tenant.min_session_minutes > 0:
@@ -292,24 +306,34 @@ async def check_out(
     return _build_response(attendance, current_user)
 
 @router.get("/me", response_model=List[AttendanceResponse])
-async def get_my_attendance(current_user: User = Depends(get_current_user)):
-    """Retrieve check-in history for the current user."""
-    logs = await Attendance.find(Attendance.user_id == current_user.id).sort(-Attendance.check_in).to_list()
+async def get_my_attendance(
+    current_user: User = Depends(get_current_user),
+    page: int = 1,
+    limit: int = 50
+):
+    """Retrieve check-in history for the current user with pagination."""
+    skip = (page - 1) * limit
+    logs = await Attendance.find(Attendance.user_id == current_user.id).sort(-Attendance.check_in).skip(skip).limit(limit).to_list()
     return [_build_response(log, current_user) for log in logs]
 
 @router.get("/all", response_model=List[AttendanceResponse])
 async def get_all_attendance(
     current_user: User = Depends(get_current_user),
     active_bu_id = Depends(get_active_business_unit_id),
+    page: int = 1,
+    limit: int = 50,
 ):
-    """Retrieve attendance logs for management with user names. Hierarchy-scoped for non-admins."""
+    """Retrieve attendance logs for management with user names. Hierarchy-scoped for non-admins with pagination."""
     if current_user.role not in [
         UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
         UserRole.MANAGER, UserRole.ASSISTANT_MANAGER
     ]:
         raise HTTPException(status_code=403, detail="Unauthorized access to attendance logs.")
 
-    from app.routes.employees import get_visible_employee_ids
+    if current_user.tenant_id is None and current_user.role != UserRole.PLATFORM_OWNER:
+        raise HTTPException(status_code=400, detail="User is not associated with any tenant.")
+
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(current_user)
 
     base_q: dict = {}
@@ -320,7 +344,8 @@ async def get_all_attendance(
     if visible_ids is not None:
         base_q["user_id"] = {"$in": list(visible_ids)}
 
-    logs = await Attendance.find(base_q).sort(-Attendance.check_in).to_list()
+    skip = (page - 1) * limit
+    logs = await Attendance.find(base_q).sort(-Attendance.check_in).skip(skip).limit(limit).to_list()
 
     user_ids = list(set([log.user_id for log in logs]))
     if not user_ids:
@@ -344,7 +369,7 @@ async def get_summary(
     ]:
         raise HTTPException(status_code=403, detail="Unauthorized")
     from app.services import dashboard_service
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(current_user)
     return await dashboard_service.get_all_attendance_summary(
         visible_employee_ids=visible_ids,
@@ -357,7 +382,12 @@ async def get_geofence_status(
     current_user: User = Depends(get_current_user)
 ):
     """Check if the current location is within the geofence. Returns distance and status."""
-    tenant = await Tenant.get(current_user.tenant_id) if current_user.tenant_id else None
+    from app.models.policy import PolicyVersion
+    tenant = None
+    if current_user.tenant_id:
+        tenant = await PolicyVersion.get_active_policy(current_user.tenant_id, datetime.now(timezone.utc))
+        if not tenant:
+            tenant = await Tenant.get(current_user.tenant_id)
     
     if not tenant or tenant.office_lat is None or tenant.office_lng is None:
         return {
@@ -418,7 +448,8 @@ async def get_my_calendar_summary(current_user: User = Depends(get_current_user)
     # Approved regularizations
     all_approved_regs = await AttendanceRegularization.find(
         AttendanceRegularization.user_id == current_user.id,
-        AttendanceRegularization.status == RegularizationStatus.APPROVED
+        AttendanceRegularization.status == RegularizationStatus.APPROVED,
+        AttendanceRegularization.created_at >= history_start
     ).to_list()
 
     attendance_id_map = {str(log.id): log for log in attendance_logs}
@@ -443,7 +474,8 @@ async def get_my_calendar_summary(current_user: User = Depends(get_current_user)
     # Approved leaves
     approved_leaves = await Leave.find(
         Leave.user_id == current_user.id,
-        Leave.status == LeaveStatus.APPROVED
+        Leave.status == LeaveStatus.APPROVED,
+        Leave.end_date >= history_start
     ).to_list()
 
     leave_dates: list[dict] = []
@@ -500,7 +532,7 @@ async def get_employee_calendar_summary(
     ]:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(current_user)
     
     try:
@@ -543,7 +575,8 @@ async def get_employee_calendar_summary(
     # Approved regularizations
     all_approved_regs = await AttendanceRegularization.find(
         AttendanceRegularization.user_id == employee.id,
-        AttendanceRegularization.status == RegularizationStatus.APPROVED
+        AttendanceRegularization.status == RegularizationStatus.APPROVED,
+        AttendanceRegularization.created_at >= history_start
     ).to_list()
 
     attendance_id_map = {str(log.id): log for log in attendance_logs}
@@ -568,7 +601,8 @@ async def get_employee_calendar_summary(
     # Approved leaves
     approved_leaves = await Leave.find(
         Leave.user_id == employee.id,
-        Leave.status == LeaveStatus.APPROVED
+        Leave.status == LeaveStatus.APPROVED,
+        Leave.end_date >= history_start
     ).to_list()
 
     leave_dates: list[dict] = []

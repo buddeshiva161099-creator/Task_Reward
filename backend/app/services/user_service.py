@@ -6,7 +6,7 @@ from app.auth.password import hash_password
 from app.models.activity_log import ActivityLog
 from beanie import PydanticObjectId
 from beanie.operators import In
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List
 
 NON_ADMIN_ROLES = [
@@ -133,7 +133,7 @@ async def update_employee(employee_id: str, **kwargs) -> Optional[User]:
         update_data["raw_password"] = None
 
     if update_data:
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(timezone.utc)
         await user.set(update_data)
 
     return await User.get(PydanticObjectId(employee_id))
@@ -145,7 +145,7 @@ async def deactivate_employee(employee_id: str) -> Optional[User]:
     if not user:
         return None
 
-    await user.set({"is_active": False, "updated_at": datetime.utcnow()})
+    await user.set({"is_active": False, "updated_at": datetime.now(timezone.utc)})
 
     await ActivityLog(
         user_id=user.id,
@@ -162,7 +162,7 @@ async def soft_delete_employee(employee_id: str) -> Optional[User]:
     if not user:
         return None
 
-    await user.set({"is_deleted": True, "updated_at": datetime.utcnow()})
+    await user.set({"is_deleted": True, "updated_at": datetime.now(timezone.utc)})
 
     await ActivityLog(
         user_id=user.id,
@@ -179,7 +179,7 @@ async def restore_employee(employee_id: str) -> Optional[User]:
     if not user:
         return None
 
-    await user.set({"is_deleted": False, "updated_at": datetime.utcnow()})
+    await user.set({"is_deleted": False, "updated_at": datetime.now(timezone.utc)})
 
     await ActivityLog(
         user_id=user.id,
@@ -202,11 +202,20 @@ async def hard_delete_employee(employee_id: str) -> bool:
     from app.models.attendance import Attendance
     from app.models.leave import Leave
     from app.models.leave_balance import LeaveBalance
-    from app.models.payroll import Payroll, SalaryStructure
+    from app.models.payroll import Payroll, SalaryStructure, PayrollHistory
     from app.models.activity_log import ActivityLog
     from app.models.notification import Notification
     from app.models.recurring_task import RecurrenceRule
     from app.models.regularization import AttendanceRegularization
+    from app.models.ledger import LeaveLedgerEntry, RewardLedgerEntry
+    from app.models.payroll_impact import PayrollRecalculationImpact
+    from app.models.employee import Employee
+
+    # Fetch payrolls to delete their histories
+    payrolls = await Payroll.find(Payroll.user_id == uid).to_list()
+    payroll_ids = [p.id for p in payrolls]
+    if payroll_ids:
+        await PayrollHistory.find(In(PayrollHistory.payroll_id, payroll_ids)).delete()
 
     # Delete all associated records matching user_id / assigned_to
     await Task.find(Task.assigned_to == uid).delete()
@@ -218,6 +227,10 @@ async def hard_delete_employee(employee_id: str) -> bool:
     await ActivityLog.find(ActivityLog.user_id == uid).delete()
     await Notification.find(Notification.user_id == uid).delete()
     await AttendanceRegularization.find(AttendanceRegularization.user_id == uid).delete()
+    await LeaveLedgerEntry.find(LeaveLedgerEntry.user_id == uid).delete()
+    await RewardLedgerEntry.find(RewardLedgerEntry.user_id == uid).delete()
+    await PayrollRecalculationImpact.find(PayrollRecalculationImpact.user_id == uid).delete()
+    await Employee.find(Employee.user_id == uid).delete()
 
     # Remove employee from any Recurrence Rules they are assigned to
     await RecurrenceRule.find(RecurrenceRule.created_by == uid).delete()
@@ -237,3 +250,97 @@ async def get_active_employee_count() -> int:
     return await User.find(
         In(User.role, NON_ADMIN_ROLES), User.is_active == True
     ).count()
+
+
+async def get_visible_employee_ids(user: User) -> set:
+    """
+    Returns a set of PydanticObjectIds of all employees visible to the given manager/HR.
+    - Admin: returns None (unlimited visibility).
+    - Manager: AMs reporting to them, Employees reporting to those AMs, and AHRMs reporting to them.
+      If `scope_company_ids` is set, the visible set is further restricted to users whose
+      `primary_company_id` is in that set.
+    - HR Manager: AHRMs reporting to them, Employees reporting to those AHRMs, and AMs reporting to them.
+    - Assistant Manager: Employees reporting to them.
+    - Assistant HR Manager: Employees reporting to them.
+    - Employee: Only themselves.
+    """
+    if hasattr(user, "_visible_employee_ids_cache"):
+        return user._visible_employee_ids_cache
+
+    if user.role == UserRole.ADMIN:
+        user._visible_employee_ids_cache = None
+        return None
+
+    visible_ids = {user.id}
+
+    # Per-Company manager delegation: when a manager has `scope_company_ids` set,
+    # they can only see users whose primary_company_id is in that set.
+    scope_company_ids = set(user.scope_company_ids or [])
+
+    # Optimization: Use database-level distinct() for faster lookups without full document loading.
+    if user.role == UserRole.MANAGER:
+        # Performance optimization: Targeted DB queries instead of full scan
+        # Get AMs and AHRMs reporting to this Manager
+        sub_managers = await User.find(
+            User.reporting_manager_id == user.id,
+            In(User.role, [UserRole.ASSISTANT_MANAGER, UserRole.ASSISTANT_HR_MANAGER])
+        ).to_list()
+
+        am_ids = []
+        for u in sub_managers:
+            visible_ids.add(u.id)
+            if u.role == UserRole.ASSISTANT_MANAGER:
+                am_ids.append(u.id)
+
+        if am_ids:
+            # Employees reporting to those AMs
+            emp_ids = await User.find(
+                User.role == UserRole.EMPLOYEE,
+                In(User.reporting_manager_id, am_ids)
+            ).project({"_id": 1}).to_list()
+            visible_ids.update(e.id if hasattr(e, "id") else e["_id"] for e in emp_ids)
+
+    elif user.role == UserRole.HR_MANAGER:
+        # Get AHRMs and AMs reporting to this HR Manager
+        sub_managers = await User.find(
+            User.hr_reporting_manager_id == user.id,
+            In(User.role, [UserRole.ASSISTANT_HR_MANAGER, UserRole.ASSISTANT_MANAGER])
+        ).to_list()
+
+        ahrm_ids = []
+        for u in sub_managers:
+            visible_ids.add(u.id)
+            if u.role == UserRole.ASSISTANT_HR_MANAGER:
+                ahrm_ids.append(u.id)
+
+        if ahrm_ids:
+            # Employees reporting to those AHRMs
+            emp_ids = await User.find(
+                User.role == UserRole.EMPLOYEE,
+                In(User.hr_reporting_manager_id, ahrm_ids)
+            ).project({"_id": 1}).to_list()
+            visible_ids.update(e.id if hasattr(e, "id") else e["_id"] for e in emp_ids)
+
+    elif user.role == UserRole.ASSISTANT_MANAGER:
+        emp_ids = await User.find(
+            User.role == UserRole.EMPLOYEE,
+            User.reporting_manager_id == user.id
+        ).project({"_id": 1}).to_list()
+        visible_ids.update(e.id if hasattr(e, "id") else e["_id"] for e in emp_ids)
+
+    elif user.role == UserRole.ASSISTANT_HR_MANAGER:
+        emp_ids = await User.find(
+            User.role == UserRole.EMPLOYEE,
+            User.hr_reporting_manager_id == user.id
+        ).project({"_id": 1}).to_list()
+        visible_ids.update(e.id if hasattr(e, "id") else e["_id"] for e in emp_ids)
+
+    if scope_company_ids:
+        scoped_users = await User.find(
+            In(User.id, list(visible_ids)),
+            In(User.primary_company_id, list(scope_company_ids))
+        ).project({"_id": 1}).to_list()
+        visible_ids = {u.id if hasattr(u, "id") else u["_id"] for u in scoped_users}
+
+    user._visible_employee_ids_cache = visible_ids
+    return visible_ids

@@ -3,7 +3,7 @@ Policy models for versioned rules and approval workflows.
 """
 from beanie import Document
 from pydantic import Field, ConfigDict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from beanie import PydanticObjectId
 
@@ -11,9 +11,9 @@ from beanie import PydanticObjectId
 class PolicyVersion(Document):
     tenant_id: PydanticObjectId
     version: int = Field(default=1)
-    effective_from: datetime = Field(default_factory=datetime.utcnow)
+    effective_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     effective_to: Optional[datetime] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     created_by_id: Optional[PydanticObjectId] = None
 
     # Versioned configurations duplicated from Tenant
@@ -81,6 +81,19 @@ class PolicyVersion(Document):
     casual_leave_limit: int = Field(default=12)
     max_paid_casual_leaves_per_month: int = Field(default=1)
 
+    @classmethod
+    async def get_active_policy(cls, tenant_id: PydanticObjectId, timestamp: datetime) -> Optional["PolicyVersion"]:
+        """Find the active policy version for a tenant at a specific point in time."""
+        from beanie.operators import Or
+        policy = await cls.find_one(
+            cls.tenant_id == tenant_id,
+            cls.effective_from <= timestamp,
+            Or(cls.effective_to == None, cls.effective_to > timestamp)
+        )
+        if not policy:
+            policy = await cls.find(cls.tenant_id == tenant_id).sort("-version").first_or_none()
+        return policy
+
     class Settings:
         name = "policy_versions"
         indexes = [
@@ -94,9 +107,9 @@ class ApprovalPolicy(Document):
     tenant_id: PydanticObjectId
     event_type: str = Field(..., max_length=50)  # "leave", "regularization", "payroll"
     required_approvals: List[str] = Field(default=["manager", "hr_manager"])  # Ordered roles required for approval
-    effective_from: datetime = Field(default_factory=datetime.utcnow)
+    effective_from: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     is_active: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "approval_policies"

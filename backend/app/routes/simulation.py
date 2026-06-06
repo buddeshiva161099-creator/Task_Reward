@@ -9,7 +9,7 @@ from app.models.attendance import Attendance
 from app.models.payroll import Payroll, SalaryStructure, PayrollStatus
 from app.auth.dependencies import require_admin
 from beanie import PydanticObjectId
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import bcrypt
 
 router = APIRouter(prefix="/simulation", tags=["Simulation Engine"])
@@ -98,7 +98,7 @@ async def seed_simulation_data(admin: User = Depends(require_admin)):
             pf_deduction=pf,
             esi_deduction=esi,
             tax_deduction=tax,
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         await structure.insert()
         

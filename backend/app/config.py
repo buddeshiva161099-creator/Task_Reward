@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change-this-secret"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
-    CORS_ORIGINS: str = "*"
+    CORS_ORIGINS: str = "http://localhost:3000"
     ENVIRONMENT: str = "development"
     ALLOW_PUBLIC_REGISTRATION: bool = False
     AUTO_SEED_DEFAULT_USERS: bool = False

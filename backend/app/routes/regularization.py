@@ -162,7 +162,7 @@ async def get_pending_regularizations(
         AttendanceRegularization.tenant_id == cid,
     ]
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None:
         from beanie.operators import In
@@ -207,7 +207,7 @@ async def get_all_regularizations(
     cid = require_tenant_id(user)
     query_conditions = [AttendanceRegularization.tenant_id == cid]
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(user)
     if visible_ids is not None:
         from beanie.operators import In
@@ -253,7 +253,7 @@ async def verify_regularization(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
     # Allow any management role (admin, hr manager, manager) to verify
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_user)
     if visible_ids is not None and req.user_id not in visible_ids:
         raise HTTPException(
@@ -344,7 +344,7 @@ async def review_regularization(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
     before_state = req.model_dump()
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_mgr)
     if visible_ids is not None and req.user_id not in visible_ids:
         raise HTTPException(
@@ -402,7 +402,7 @@ async def approve_regularization(
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(admin)
     if visible_ids is not None and req.user_id not in visible_ids:
         raise HTTPException(
@@ -563,7 +563,7 @@ async def reject_regularization(
     if not req:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Request not found")
 
-    from app.routes.employees import get_visible_employee_ids
+    from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(hr_user)
     if visible_ids is not None and req.user_id not in visible_ids:
         raise HTTPException(

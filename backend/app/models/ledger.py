@@ -3,7 +3,7 @@ Append-only transactional ledger models for Leave and Reward Points.
 """
 from beanie import Document
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from beanie import PydanticObjectId
 
@@ -17,7 +17,7 @@ class LeaveLedgerEntry(Document):
     reference_id: Optional[PydanticObjectId] = None  # reference to Leave document or adjustment ID
     description: Optional[str] = Field(default=None, max_length=500)
     actor_id: Optional[PydanticObjectId] = None  # who performed the transaction (e.g. HR/Manager/System)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "leave_ledger"
@@ -37,7 +37,7 @@ class RewardLedgerEntry(Document):
     reference_id: Optional[PydanticObjectId] = None  # reference to Task document or other event
     description: Optional[str] = Field(default=None, max_length=500)
     actor_id: Optional[PydanticObjectId] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:
         name = "reward_ledger"

@@ -60,10 +60,17 @@ async def save_upload_file(
     """Validate and persist an UploadFile with a safe generated filename."""
     validate_upload_metadata(file, allowed_content_types)
 
-    destination_dir = Path(upload_dir)
+    destination_dir = Path(upload_dir).resolve()
     destination_dir.mkdir(parents=True, exist_ok=True)
     stored_filename = build_stored_filename(file.filename)
-    destination = destination_dir / stored_filename
+    destination = (destination_dir / stored_filename).resolve()
+
+    # Enforce path traversal safety
+    if destination_dir not in destination.parents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Directory traversal detected.",
+        )
 
     max_bytes = settings.MAX_UPLOAD_BYTES
     bytes_written = 0

@@ -10,6 +10,7 @@ from app.models.payroll import Payroll, SalaryStructure, PayrollHistory
 from app.models.regularization import AttendanceRegularization
 from app.models.attendance import Attendance
 from app.models.company import Company
+from app.models.tenant import Tenant
 from app.models.holiday import Holiday
 from app.models.task import Task
 from app.models.notification import Notification
@@ -23,6 +24,9 @@ from app.models.ai_insight import CachedAIInsight
 from app.models.policy import PolicyVersion, ApprovalPolicy
 from app.models.ledger import LeaveLedgerEntry, RewardLedgerEntry
 from app.models.notification_engine import NotificationTemplate, NotificationPreference, NotificationDeliveryLog
+from app.models.business_unit import BusinessUnit
+from app.models.subscription_plan import SubscriptionPlan
+from app.models.platform_audit_log import PlatformAuditLog
 
 from beanie import init_beanie
 from pymongo import AsyncMongoClient
@@ -32,22 +36,24 @@ async def db():
     mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
     client = AsyncMongoClient(mongodb_url)
     await init_beanie(database=client.test_db_fixes, document_models=[
-        User, Task, ActivityLog, Company, Attendance, Holiday, 
+        User, Task, ActivityLog, Tenant, Company, Attendance, Holiday, 
         RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
         AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
         ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact,
         PolicyVersion, ApprovalPolicy, Employee, LeaveLedgerEntry, RewardLedgerEntry,
-        NotificationTemplate, NotificationPreference, NotificationDeliveryLog
+        NotificationTemplate, NotificationPreference, NotificationDeliveryLog,
+        BusinessUnit, SubscriptionPlan, PlatformAuditLog
     ])
 
     # Clear db
     models = [
-        User, Task, ActivityLog, Company, Attendance, Holiday, 
+        User, Task, ActivityLog, Tenant, Company, Attendance, Holiday, 
         RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
         AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
         ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact,
         PolicyVersion, ApprovalPolicy, Employee, LeaveLedgerEntry, RewardLedgerEntry,
-        NotificationTemplate, NotificationPreference, NotificationDeliveryLog
+        NotificationTemplate, NotificationPreference, NotificationDeliveryLog,
+        BusinessUnit, SubscriptionPlan, PlatformAuditLog
     ]
     for model in models:
         await model.find_all().delete()

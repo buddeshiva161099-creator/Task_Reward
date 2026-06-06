@@ -9,7 +9,7 @@ from app.auth.tenant_scope import require_tenant_id, get_active_business_unit_id
 from app.models.user import User
 from app.models.category import Category
 from app.models.business_unit import BusinessUnit
-from datetime import datetime
+from datetime import datetime, timezone
 from app.utils.ist_time import to_utc_iso
 
 router = APIRouter(prefix="/categories", tags=["Category Management"])
@@ -127,7 +127,7 @@ async def update_category(
         update_data["is_active"] = request.is_active
 
     if update_data:
-        update_data["updated_at"] = datetime.utcnow()
+        update_data["updated_at"] = datetime.now(timezone.utc)
         await category.set(update_data)
         category = await Category.get(category.id)
 

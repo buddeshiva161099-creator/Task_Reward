@@ -12,7 +12,7 @@ NULL until they create their first company. Empty tenant is allowed.
 from beanie import Document, PydanticObjectId
 from pymongo import IndexModel
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -23,7 +23,7 @@ class Company(Document):
     is_active: bool = Field(default=True, index=True)
     is_default: bool = Field(default=False)
     created_by: Optional[PydanticObjectId] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
 
     class Settings:

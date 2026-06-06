@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from app.models.payroll import Payroll, SalaryStructure, PayrollStatus, PayrollHistory
 from app.models.user import User, UserRole
-from app.models.company import Company
+from app.models.tenant import Tenant
 from app.models.attendance import Attendance
 from app.models.holiday import Holiday
 from app.models.task import Task
@@ -20,12 +20,12 @@ async def setup_db():
     mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
     client = AsyncMongoClient(mongodb_url)
     await init_beanie(database=client.test_db, document_models=[
-        User, Company, Payroll, SalaryStructure, Attendance, Leave, AttendanceRegularization, PayrollHistory, Holiday, Task
+        User, Tenant, Payroll, SalaryStructure, Attendance, Leave, AttendanceRegularization, PayrollHistory, Holiday, Task
     ])
 
     # clear db
     await User.find_all().delete()
-    await Company.find_all().delete()
+    await Tenant.find_all().delete()
     await Payroll.find_all().delete()
     await SalaryStructure.find_all().delete()
     await Attendance.find_all().delete()
@@ -40,14 +40,14 @@ async def setup_db():
 
 @pytest.mark.asyncio
 async def test_calculate_corporate_payroll_basic():
-    company = Company(name="Test Corp", geofence_radius_meters=100)
+    company = Tenant(name="Test Corp", geofence_radius_meters=100)
     await company.insert()
 
     user = User(
         email="test@example.com",
         name="Test User",
         role=UserRole.EMPLOYEE,
-        company_id=company.id,
+        tenant_id=company.id,
         hiring_date="2023-01-01",
         password_hash="mock_hash"
     )
@@ -70,7 +70,7 @@ async def test_calculate_corporate_payroll_basic():
     for i in range(5):
         attn = Attendance(
             user_id=user.id,
-            company_id=company.id,
+            tenant_id=company.id,
             check_in=start_date + timedelta(days=i),
             status="present"
         )
@@ -84,9 +84,9 @@ async def test_calculate_corporate_payroll_basic():
 
 @pytest.mark.asyncio
 async def test_calculate_corporate_payroll_with_regularization():
-    company = Company(name="Test Corp")
+    company = Tenant(name="Test Corp")
     await company.insert()
-    user = User(email="test2@example.com", name="Test User 2", role=UserRole.EMPLOYEE, company_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
+    user = User(email="test2@example.com", name="Test User 2", role=UserRole.EMPLOYEE, tenant_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
     await user.insert()
 
     struct = SalaryStructure(
@@ -96,7 +96,7 @@ async def test_calculate_corporate_payroll_with_regularization():
 
     check_in_date = datetime(2024, 5, 1, 9, 0, tzinfo=timezone.utc)
     attn = Attendance(
-        user_id=user.id, company_id=company.id, check_in=check_in_date, status="present", remarks="Regularized"
+        user_id=user.id, tenant_id=company.id, check_in=check_in_date, status="present", remarks="Regularized"
     )
     await attn.insert()
 
@@ -113,9 +113,9 @@ async def test_calculate_corporate_payroll_with_regularization():
 
 @pytest.mark.asyncio
 async def test_calculate_corporate_payroll_with_leaves():
-    company = Company(name="Test Corp")
+    company = Tenant(name="Test Corp")
     await company.insert()
-    user = User(email="test3@example.com", name="Test User 3", role=UserRole.EMPLOYEE, company_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
+    user = User(email="test3@example.com", name="Test User 3", role=UserRole.EMPLOYEE, tenant_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
     await user.insert()
 
     struct = SalaryStructure(
@@ -139,9 +139,9 @@ async def test_calculate_corporate_payroll_with_leaves():
 
 @pytest.mark.asyncio
 async def test_payroll_recalculation_history():
-    company = Company(name="Test Corp")
+    company = Tenant(name="Test Corp")
     await company.insert()
-    user = User(email="test4@example.com", name="Test User 4", role=UserRole.EMPLOYEE, company_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
+    user = User(email="test4@example.com", name="Test User 4", role=UserRole.EMPLOYEE, tenant_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
     await user.insert()
 
     struct = SalaryStructure(user_id=user.id, basic=10000)
@@ -151,7 +151,7 @@ async def test_payroll_recalculation_history():
     assert payroll_v1.version_number == 1
 
     attn = Attendance(
-        user_id=user.id, company_id=company.id, check_in=datetime(2024, 5, 10, 9, 0, tzinfo=timezone.utc), status="present"
+        user_id=user.id, tenant_id=company.id, check_in=datetime(2024, 5, 10, 9, 0, tzinfo=timezone.utc), status="present"
     )
     await attn.insert()
 
@@ -168,9 +168,9 @@ async def test_payroll_recalculation_history():
 
 @pytest.mark.asyncio
 async def test_payroll_recalculation_locked():
-    company = Company(name="Test Corp")
+    company = Tenant(name="Test Corp")
     await company.insert()
-    user = User(email="test5@example.com", name="Test User 5", role=UserRole.EMPLOYEE, company_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
+    user = User(email="test5@example.com", name="Test User 5", role=UserRole.EMPLOYEE, tenant_id=company.id, hiring_date="2023-01-01", password_hash="mock_hash")
     await user.insert()
 
     struct = SalaryStructure(user_id=user.id, basic=12000)
@@ -189,7 +189,7 @@ async def test_payroll_recalculation_locked():
 
     # Add attendance log
     attn = Attendance(
-        user_id=user.id, company_id=company.id, check_in=datetime(2024, 5, 10, 9, 0, tzinfo=timezone.utc), status="present"
+        user_id=user.id, tenant_id=company.id, check_in=datetime(2024, 5, 10, 9, 0, tzinfo=timezone.utc), status="present"
     )
     await attn.insert()
 
@@ -207,7 +207,7 @@ async def test_payroll_recalculation_locked():
 
 @pytest.mark.asyncio
 async def test_payroll_active_window_full_month():
-    company = Company(name="Test Corp")
+    company = Tenant(name="Test Corp")
     await company.insert()
     
     # Hired mid-month on May 15th, 2024
@@ -215,7 +215,7 @@ async def test_payroll_active_window_full_month():
         email="midmonth@example.com",
         name="Mid Month User",
         role=UserRole.EMPLOYEE,
-        company_id=company.id,
+        tenant_id=company.id,
         hiring_date="2024-05-15",
         password_hash="mock_hash"
     )
@@ -244,7 +244,7 @@ async def test_payroll_active_window_full_month():
 @pytest.mark.asyncio
 async def test_payroll_custom_company_work_days():
     # 4-day workweek (Monday to Thursday). Friday, Saturday, Sunday are weekoffs (weekends).
-    company = Company(
+    company = Tenant(
         name="Custom Workweek Corp",
         work_days=["Monday", "Tuesday", "Wednesday", "Thursday"]
     )
@@ -254,7 +254,7 @@ async def test_payroll_custom_company_work_days():
         email="custom@example.com",
         name="Custom User",
         role=UserRole.EMPLOYEE,
-        company_id=company.id,
+        tenant_id=company.id,
         hiring_date="2024-01-01",
         password_hash="mock_hash"
     )
@@ -287,14 +287,14 @@ async def test_get_payroll_history_endpoint():
     from httpx import AsyncClient, ASGITransport
     from app.main import app
     
-    company = Company(name="Test Corp")
+    company = Tenant(name="Test Corp")
     await company.insert()
     
     admin = User(
         email="admin@example.com",
         name="Admin User",
         role=UserRole.ADMIN,
-        company_id=company.id,
+        tenant_id=company.id,
         password_hash="mock_hash"
     )
     await admin.insert()
@@ -303,7 +303,7 @@ async def test_get_payroll_history_endpoint():
         email="test_hist@example.com",
         name="Test User History",
         role=UserRole.EMPLOYEE,
-        company_id=company.id,
+        tenant_id=company.id,
         hiring_date="2023-01-01",
         password_hash="mock_hash"
     )
@@ -316,7 +316,7 @@ async def test_get_payroll_history_endpoint():
     
     # Trigger version 2 recalculation to generate a history entry
     attn = Attendance(
-        user_id=user.id, company_id=company.id, check_in=datetime(2024, 5, 10, 9, 0, tzinfo=timezone.utc), status="present"
+        user_id=user.id, tenant_id=company.id, check_in=datetime(2024, 5, 10, 9, 0, tzinfo=timezone.utc), status="present"
     )
     await attn.insert()
     payroll_v2 = await calculate_corporate_payroll(user, "2024-05")

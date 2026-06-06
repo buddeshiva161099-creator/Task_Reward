@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from app.models.payroll_impact import PayrollRecalculationImpact, ImpactStatus
 from app.models.user import User
@@ -31,7 +31,7 @@ class PayrollImpactService:
         impact = await PayrollRecalculationImpact.get(impact_id)
         if impact:
             impact.status = ImpactStatus.PROCESSED
-            impact.processed_at = datetime.utcnow()
+            impact.processed_at = datetime.now(timezone.utc)
             impact.processed_by = processed_by_id
             await impact.save()
         return impact

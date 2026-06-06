@@ -9,10 +9,15 @@ from app.auth.jwt_handler import create_access_token
 from app.auth.dependencies import get_current_user
 from app.config import settings
 
+from app.utils.rate_limiter import RateLimiter
+
+login_limiter = RateLimiter(times=5, seconds=60)
+register_limiter = RateLimiter(times=3, seconds=60)
+
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(login_limiter)])
 async def login(request: LoginRequest):
     """Authenticate user and return JWT token."""
     user = await User.find_one(User.email == request.email)
@@ -52,7 +57,7 @@ async def login(request: LoginRequest):
     )
 
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register", status_code=status.HTTP_201_CREATED, dependencies=[Depends(register_limiter)])
 async def register(request: RegisterRequest):
     """Register a new user when public registration is explicitly enabled.
 

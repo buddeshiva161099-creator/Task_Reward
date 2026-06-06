@@ -39,7 +39,7 @@ ALL_UNITS_SENTINEL = "all"
 ALL_COMPANIES_SENTINEL = "all"
 
 
-def require_tenant_id(current_user: User) -> PydanticObjectId:
+def require_tenant_id(current_user: User = Depends(get_current_user)) -> PydanticObjectId:
     """Returns the caller's tenant_id, raising 403 if the user is not a tenant user."""
     if current_user.role == UserRole.PLATFORM_OWNER or current_user.is_platform_owner:
         raise HTTPException(

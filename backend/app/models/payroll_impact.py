@@ -1,6 +1,6 @@
 from beanie import Document, PydanticObjectId
 from pydantic import Field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
@@ -18,7 +18,7 @@ class PayrollRecalculationImpact(Document):
     source_event_id: PydanticObjectId
 
     status: ImpactStatus = ImpactStatus.PENDING
-    trigger_timestamp: datetime = Field(default_factory=datetime.utcnow)
+    trigger_timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     processed_at: Optional[datetime] = None
     processed_by: Optional[PydanticObjectId] = None
 

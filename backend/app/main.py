@@ -21,7 +21,13 @@ from app.middleware import exception_handler_middleware, tenant_status_middlewar
 
 def validate_runtime_security_settings():
     """Fail fast on deployment settings that would weaken production security."""
+    import logging
+    _logger = logging.getLogger(__name__)
     if not settings.is_production:
+        if settings.uses_insecure_jwt_secret:
+            _logger.warning("DEVELOPMENT WARNING: Running with an insecure JWT_SECRET. Do NOT use this secret in production.")
+        if "*" in settings.cors_origins_list:
+            _logger.warning("DEVELOPMENT WARNING: CORS allows all origins (*). Restrict this in production.")
         return
     if settings.uses_insecure_jwt_secret:
         raise RuntimeError("JWT_SECRET must be changed before running in production.")
@@ -41,11 +47,12 @@ async def ensure_platform_owner_exists():
             "Run: python seed_platform_owner.py --email owner@vision.app --password '<strong>' --name 'Owner'"
         )
 
+
 async def auto_checkout_stale_sessions():
     """Auto-close attendance sessions that are still open past work hours."""
     from app.models.attendance import Attendance, ist_now
     from app.models.tenant import Tenant
-    from datetime import datetime, timedelta
+    from datetime import datetime, timezone
     import logging
     _logger = logging.getLogger(__name__)
     
@@ -54,65 +61,120 @@ async def auto_checkout_stale_sessions():
         open_sessions = await Attendance.find(Attendance.check_out == None).to_list()
         
         for session in open_sessions:
-            tenant = await Tenant.get(session.tenant_id)
-            if not tenant or not tenant.auto_checkout_enabled:
-                continue
-            
-            # Parse work_end_time robustly
             try:
-                wt = tenant.work_end_time.strip().upper()
-                is_pm = "PM" in wt
-                wt_clean = wt.replace("AM", "").replace("PM", "").strip()
-                end_parts = wt_clean.split(":")
-                end_hour = int(end_parts[0])
-                end_min = int(end_parts[1]) if len(end_parts) > 1 else 0
-                if is_pm and end_hour < 12:
-                    end_hour += 12
-            except Exception:
-                end_hour, end_min = 18, 0  # Default 6 PM IST
-            
-            # Use timezone-aware calculations
-            from datetime import timezone
-            from app.models.attendance import IST
-            now_utc = datetime.now(timezone.utc)
-            local_now = now_utc.astimezone(IST)
-            session_age_hours = (now_utc - session.check_in).total_seconds() / 3600
-            
-            # Auto-close if: current IST hour is past (end + 1h) OR session > 14h
-            if local_now.hour > end_hour + 1 or session_age_hours > 14:
-                session.check_out = now_utc
-                session.is_auto_closed = True
-                session.remarks = (session.remarks or "") + " [Auto-closed by system]"
-                if "auto_closed" not in session.flags:
-                    session.flags.append("auto_closed")
-                await session.save()
-
-                # Send missed checkout alert
+                if not session.tenant_id:
+                    _logger.warning(f"Session {session.id} lacks tenant_id. Skipping auto-checkout processing.")
+                    continue
+                
+                tenant = await Tenant.get(session.tenant_id)
+                if not tenant or not tenant.auto_checkout_enabled:
+                    continue
+                
+                # Parse work_end_time robustly
                 try:
-                    from app.services.notification_service import NotificationService
-                    await NotificationService.notify_user(
-                        user_id=session.user_id,
-                        title="Missed Checkout Alert",
-                        message="You missed to check out yesterday. Your session was automatically closed by the system.",
-                        type="system"
-                    )
-                except Exception as ne:
-                    _logger.warning(f"Could not send auto-checkout notification: {ne}")
+                    wt = tenant.work_end_time.strip().upper()
+                    is_pm = "PM" in wt
+                    wt_clean = wt.replace("AM", "").replace("PM", "").strip()
+                    end_parts = wt_clean.split(":")
+                    end_hour = int(end_parts[0])
+                    end_min = int(end_parts[1]) if len(end_parts) > 1 else 0
+                    if is_pm and end_hour < 12:
+                        end_hour += 12
+                except Exception:
+                    end_hour, end_min = 18, 0  # Default 6 PM IST
+                
+                # Use timezone-aware calculations
+                from app.models.attendance import IST
+                now_utc = datetime.now(timezone.utc)
+                local_now = now_utc.astimezone(IST)
+                session_age_hours = (now_utc - session.check_in).total_seconds() / 3600
+                
+                # Auto-close if: current IST hour is past (end + 1h) OR session > 14h
+                if local_now.hour > end_hour + 1 or session_age_hours > 14:
+                    session.check_out = now_utc
+                    session.is_auto_closed = True
+                    session.remarks = (session.remarks or "") + " [Auto-closed by system]"
+                    if "auto_closed" not in session.flags:
+                        session.flags.append("auto_closed")
+                    await session.save()
 
-                _logger.info(f"[AUTO-CHECKOUT] Closed stale session for user {session.user_id}")
+                    # Send missed checkout alert
+                    try:
+                        from app.services.notification_service import NotificationService
+                        await NotificationService.notify_user(
+                            user_id=session.user_id,
+                            title="Missed Checkout Alert",
+                            message="You missed to check out yesterday. Your session was automatically closed by the system.",
+                            type="system"
+                        )
+                    except Exception as ne:
+                        _logger.warning(f"Could not send auto-checkout notification for user {session.user_id}: {ne}")
+
+                    _logger.info(f"[AUTO-CHECKOUT] Closed stale session for user {session.user_id}")
+            except Exception as se:
+                _logger.error(f"Error processing auto-checkout for session {getattr(session, 'id', 'unknown')}: {se}")
     except Exception as e:
         _logger.error(f"Error in auto-checkout: {e}")
 
 
+async def backfill_attendance_tenant_ids():
+    """Backfill missing tenant_id in Attendance documents using corresponding User's tenant_id."""
+    from app.models.attendance import Attendance
+    from app.models.user import User
+    import logging
+    _logger = logging.getLogger(__name__)
+    
+    try:
+        orphaned = await Attendance.find(Attendance.tenant_id == None).to_list()
+        if not orphaned:
+            return
+        
+        _logger.info(f"[MIGRATION] Found {len(orphaned)} Attendance documents without tenant_id. Starting backfill...")
+        count = 0
+        for att in orphaned:
+            user = await User.get(att.user_id)
+            if user and user.tenant_id:
+                att.tenant_id = user.tenant_id
+                await att.save()
+                count += 1
+            else:
+                _logger.warning(f"[MIGRATION] Attendance {att.id} user {att.user_id} has no tenant_id or doesn't exist.")
+        _logger.info(f"[MIGRATION] Successfully backfilled tenant_id for {count} Attendance documents.")
+    except Exception as e:
+        _logger.error(f"[MIGRATION] Error in backfill_attendance_tenant_ids: {e}")
+
+
 async def run_periodic_tasks():
-    """Background loop for recurring tasks."""
+    """Background loop for recurring tasks with adaptive sleep."""
+    import logging
+    _logger = logging.getLogger(__name__)
+    base_sleep = 60  # Check every minute if active/busy
+    max_sleep = 900  # Max sleep 15 minutes
+    current_sleep = base_sleep
+
     while True:
         try:
+            # Run tasks
             await recurrence_service.process_recurrence()
             await auto_checkout_stale_sessions()
+
+            # Adaptive sleep calculation based on active data
+            from app.models.attendance import Attendance
+            from app.models.recurring_task import RecurrenceRule
+            
+            open_count = await Attendance.find(Attendance.check_out == None).count()
+            active_rules = await RecurrenceRule.find(RecurrenceRule.is_active == True).count()
+            
+            if open_count > 0 or active_rules > 0:
+                current_sleep = 300  # 5 minutes
+            else:
+                current_sleep = max_sleep  # 15 minutes
         except Exception as e:
-            print(f"Error in background task: {e}")
-        await asyncio.sleep(3600) # Check every hour
+            _logger.error(f"Error in background task loop: {e}")
+            current_sleep = base_sleep
+
+        await asyncio.sleep(current_sleep)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -125,6 +187,9 @@ async def lifespan(app: FastAPI):
     await NotificationEngineService.seed_templates()
 
     await ensure_platform_owner_exists()
+
+    # Run the backfill migration for legacy attendance documents
+    await backfill_attendance_tenant_ids()
 
     bg_task = asyncio.create_task(run_periodic_tasks())
     yield
@@ -148,6 +213,23 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 # Register custom exception handler
 app.middleware("http")(exception_handler_middleware)
 app.middleware("http")(tenant_status_middleware)
+
+@app.middleware("http")
+async def jwt_expiry_warning_middleware(request, call_next):
+    from app.auth.jwt_handler import check_token_near_expiry
+    response = await call_next(request)
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[1].strip()
+        if check_token_near_expiry(token):
+            response.headers["X-Token-Expiry-Warning"] = "true"
+            expose = response.headers.get("Access-Control-Expose-Headers", "")
+            if expose:
+                response.headers["Access-Control-Expose-Headers"] = expose + ", X-Token-Expiry-Warning"
+            else:
+                response.headers["Access-Control-Expose-Headers"] = "X-Token-Expiry-Warning"
+    return response
+
 
 # CORS middleware
 app.add_middleware(

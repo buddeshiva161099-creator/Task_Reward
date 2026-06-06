@@ -1,7 +1,7 @@
 """
 Platform metrics service for the Application Owner dashboard.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.models.tenant import Tenant, TENANT_STATUSES
@@ -37,10 +37,10 @@ class PlatformMetricsService:
             ).count()
 
         new_tenants_30d = await Tenant.find(
-            Tenant.created_at >= datetime.utcnow() - timedelta(days=30)
+            Tenant.created_at >= datetime.now(timezone.utc) - timedelta(days=30)
         ).count()
 
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
         recent_signups = (
             await User.find(
                 User.is_platform_owner == False,

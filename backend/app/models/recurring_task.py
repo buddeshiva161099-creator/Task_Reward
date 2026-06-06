@@ -1,7 +1,7 @@
 """Recurring task models.
 """
 from beanie import Document, PydanticObjectId
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
@@ -48,16 +48,22 @@ class RecurrenceRule(Document):
     last_occurrence: Optional[datetime] = None
     assigned_to_list: List[PydanticObjectId] = Field(default_factory=list, description="Users assigned to this rule")
 
-    @validator("weekdays", each_item=True)
+    @field_validator("weekdays")
+    @classmethod
     def _valid_weekday(cls, v):
-        if not 0 <= v <= 6:
-            raise ValueError("weekday must be 0‑6")
+        if v is not None:
+            for item in v:
+                if not 0 <= item <= 6:
+                    raise ValueError("weekday must be 0-6")
         return v
 
-    @validator("month_days", each_item=True)
+    @field_validator("month_days")
+    @classmethod
     def _valid_month_day(cls, v):
-        if not 1 <= v <= 31:
-            raise ValueError("month day must be 1‑31")
+        if v is not None:
+            for item in v:
+                if not 1 <= item <= 31:
+                    raise ValueError("month day must be 1-31")
         return v
 
     class Settings:

@@ -10,7 +10,7 @@ Company by the company service.
 """
 import secrets
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from app.models.tenant import (
@@ -63,7 +63,7 @@ class OnboardingService:
 
         effective_trial_days = trial_days if trial_days is not None else (plan.trial_days if plan else 14)
         max_employees = plan.max_employees if plan else 50
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         trial_ends_at = now + timedelta(days=effective_trial_days)
 
         tenant = Tenant(

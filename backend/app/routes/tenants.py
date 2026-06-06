@@ -9,7 +9,7 @@ from app.models.user import User
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from beanie import PydanticObjectId
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from app.services.audit_service import AuditService
 import logging
 
@@ -185,7 +185,7 @@ async def save_policy_version(company: Tenant, actor_id: Optional[PydanticObject
     # Find latest version
     latest = await PolicyVersion.find(PolicyVersion.tenant_id == company.id).sort("-version").first_or_none()
     next_version = 1
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if latest:
         next_version = latest.version + 1
         latest.effective_to = now

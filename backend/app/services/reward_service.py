@@ -49,11 +49,17 @@ async def apply_performance_score(task: Task, is_rejection: bool = False) -> Tup
         return 0.0, "Assigned user not found."
 
     from app.models.tenant import Tenant
+    from app.models.policy import PolicyVersion
     tenant = None
+    task_time = task.completed_at or datetime.now(timezone.utc)
     if task.tenant_id:
-        tenant = await Tenant.get(task.tenant_id)
+        tenant = await PolicyVersion.get_active_policy(task.tenant_id, task_time)
+        if not tenant:
+            tenant = await Tenant.get(task.tenant_id)
     if not tenant and user.tenant_id:
-        tenant = await Tenant.get(user.tenant_id)
+        tenant = await PolicyVersion.get_active_policy(user.tenant_id, task_time)
+        if not tenant:
+            tenant = await Tenant.get(user.tenant_id)
     if not tenant:
         tenant = await Tenant.find_one(Tenant.is_active == True)
 
