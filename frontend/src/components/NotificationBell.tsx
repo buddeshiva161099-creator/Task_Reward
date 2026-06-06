@@ -54,15 +54,43 @@ export default function NotificationBell() {
   useEffect(() => {
     if (user?.id) {
       const connectWS = () => {
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const defaultHost = typeof window !== 'undefined'
-          ? (window.location.hostname === 'localhost' ? `${window.location.hostname}:8000` : window.location.host)
-          : 'localhost:8000';
-        const configuredHost = process.env.NEXT_PUBLIC_WS_URL || defaultHost;
-        const token = localStorage.getItem('token');
-        const wsUrl = configuredHost.startsWith('ws')
-          ? `${configuredHost}/notifications/ws/${user.id}${token ? `?token=${token}` : ''}`
-          : `${protocol}//${configuredHost}/notifications/ws/${user.id}${token ? `?token=${token}` : ''}`;
+        const token = localStorage.getItem('access_token');
+        let wsUrl = '';
+
+        if (process.env.NEXT_PUBLIC_WS_URL) {
+          const baseWs = process.env.NEXT_PUBLIC_WS_URL.endsWith('/')
+            ? process.env.NEXT_PUBLIC_WS_URL.slice(0, -1)
+            : process.env.NEXT_PUBLIC_WS_URL;
+          wsUrl = `${baseWs}/notifications/ws/${user.id}`;
+        } else {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          if (apiUrl && apiUrl.startsWith('http')) {
+            try {
+              const parsedUrl = new URL(apiUrl);
+              const wsProtocol = parsedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+              let pathname = parsedUrl.pathname;
+              if (pathname.endsWith('/')) {
+                pathname = pathname.slice(0, -1);
+              }
+              wsUrl = `${wsProtocol}//${parsedUrl.host}${pathname}/notifications/ws/${user.id}`;
+            } catch (e) {
+              console.error('[NotificationBell] Failed to parse NEXT_PUBLIC_API_URL:', e);
+            }
+          }
+        }
+
+        if (!wsUrl) {
+          const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+          const defaultHost = typeof window !== 'undefined'
+            ? (window.location.hostname === 'localhost' ? `${window.location.hostname}:8000` : window.location.host)
+            : 'localhost:8000';
+          wsUrl = `${protocol}//${defaultHost}/notifications/ws/${user.id}`;
+        }
+
+        if (token) {
+          wsUrl += `?token=${token}`;
+        }
+
         const ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
