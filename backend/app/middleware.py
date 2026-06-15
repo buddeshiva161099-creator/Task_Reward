@@ -38,11 +38,13 @@ async def exception_handler_middleware(request: Request, call_next):
     except Exception as e:
         logger.error(f"Unhandled Exception: {str(e)}")
         logger.error(traceback.format_exc())
+        from app.config import settings
+        detail = "Internal Server Error" if settings.is_production else (str(e) if not request.app.debug else traceback.format_exc())
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "message": "An internal server error occurred",
-                "detail": str(e) if not request.app.debug else traceback.format_exc()
+                "detail": detail
             },
         )
 

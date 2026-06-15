@@ -10,14 +10,18 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire})
+    to_encode.update({
+        "exp": expire,
+        "aud": settings.JWT_AUDIENCE
+    })
     return jwt.encode(to_encode, settings.JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
+def decode_access_token(token: str, audience: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Decode and verify a JWT access token."""
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM])
+        aud = audience or settings.JWT_AUDIENCE
+        payload = jwt.decode(token, settings.JWT_SECRET, algorithms=[settings.JWT_ALGORITHM], audience=aud)
         return payload
     except JWTError:
         return None
@@ -31,7 +35,8 @@ def check_token_near_expiry(token: str, threshold_minutes: int = 30) -> bool:
             token,
             settings.JWT_SECRET,
             algorithms=[settings.JWT_ALGORITHM],
-            options={"verify_signature": True, "verify_exp": False}
+            options={"verify_signature": True, "verify_exp": False},
+            audience=settings.JWT_AUDIENCE
         )
         exp = payload.get("exp")
         if exp:

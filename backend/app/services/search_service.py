@@ -17,18 +17,20 @@ async def global_search(query: str, tenant_id: str = None) -> Dict[str, List[Dic
     if not query or len(query) < 2:
         return {"employees": [], "tenants": [], "tasks": []}
 
-    search_filter = {"$regex": query, "$options": "i"}
+    import re
+    escaped_query = re.escape(query)
+    search_filter = {"$regex": escaped_query, "$options": "i"}
 
     # 1. Search Employees (always tenant-scoped)
-    user_query = {
+    user_query = [
         User.role == UserRole.EMPLOYEE,
         {"$or": [
             {"name": search_filter},
             {"email": search_filter}
         ]}
-    }
+    ]
     if tenant_id is not None:
-        user_query.add({"tenant_id": tenant_id})
+        user_query.append({"tenant_id": tenant_id})
 
     employees = await User.find(*user_query).limit(5).to_list()
 

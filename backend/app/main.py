@@ -277,18 +277,63 @@ app.middleware("http")(security_headers_middleware)
 
 @app.middleware("http")
 async def jwt_expiry_warning_middleware(request, call_next):
-    from app.auth.jwt_handler import check_token_near_expiry
-    response = await call_next(request)
+    from app.auth.jwt_handler import check_token_near_expiry, decode_access_token, create_access_token
+    from app.config import settings
+
+    token = None
+    cookie_key = None
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         token = auth.split(" ", 1)[1].strip()
-        if check_token_near_expiry(token):
-            response.headers["X-Token-Expiry-Warning"] = "true"
-            expose = response.headers.get("Access-Control-Expose-Headers", "")
-            if expose:
-                response.headers["Access-Control-Expose-Headers"] = expose + ", X-Token-Expiry-Warning"
-            else:
-                response.headers["Access-Control-Expose-Headers"] = "X-Token-Expiry-Warning"
+    else:
+        token = request.cookies.get("access_token")
+        if token:
+            cookie_key = "access_token"
+        else:
+            token = request.cookies.get("owner_access_token")
+            if token:
+                cookie_key = "owner_access_token"
+
+    response = await call_next(request)
+
+    if token:
+        try:
+            payload = decode_access_token(token)
+            if payload and check_token_near_expiry(token, threshold_minutes=15):
+                new_data = {k: v for k, v in payload.items() if k not in ("exp", "aud")}
+                new_token = create_access_token(new_data)
+                
+                if not cookie_key:
+                    role = payload.get("role")
+                    if role == "platform_owner":
+                        cookie_key = "owner_access_token"
+                    else:
+                        cookie_key = "access_token"
+                
+                response.set_cookie(
+                    key=cookie_key,
+                    value=new_token,
+                    httponly=True,
+                    secure=settings.ENVIRONMENT == "production",
+                    samesite="lax",
+                    max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+                )
+                
+                response.headers["X-Token-Expiry-Warning"] = "true"
+                response.headers["X-Refreshed-Token"] = new_token
+                
+                expose = response.headers.get("Access-Control-Expose-Headers", "")
+                new_exposes = ["X-Token-Expiry-Warning", "X-Refreshed-Token"]
+                if expose:
+                    existing = [e.strip() for e in expose.split(",")]
+                    for ne in new_exposes:
+                        if ne not in existing:
+                            existing.append(ne)
+                    response.headers["Access-Control-Expose-Headers"] = ", ".join(existing)
+                else:
+                    response.headers["Access-Control-Expose-Headers"] = ", ".join(new_exposes)
+        except Exception:
+            pass
     return response
 
 

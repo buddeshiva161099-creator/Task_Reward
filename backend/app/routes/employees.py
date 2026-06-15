@@ -13,6 +13,9 @@ from beanie.operators import In
 from typing import List
 from app.services.audit_service import AuditService
 from app.utils.uploads import IDENTITY_ALLOWED_CONTENT_TYPES, save_upload_file
+from app.utils.rate_limiter import RateLimiter
+
+employee_creation_limiter = RateLimiter(times=10, seconds=60)
 
 NON_ADMIN_ROLES = [
     UserRole.HR_MANAGER,
@@ -23,6 +26,7 @@ NON_ADMIN_ROLES = [
 ]
 
 router = APIRouter(prefix="/admin/employees", tags=["Employee Management"])
+
 
 
 async def check_circular_dependency(user_id: PydanticObjectId, potential_manager_id: PydanticObjectId) -> bool:
@@ -296,7 +300,7 @@ async def get_employee_stats(
 #  Create
 # ────────────────────────────────────────────────────────
 
-@router.post("", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED)
+@router.post("", response_model=EmployeeResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(employee_creation_limiter)])
 async def create_employee(
     request: CreateEmployeeRequest,
     http_request: Request,

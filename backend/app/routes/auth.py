@@ -13,6 +13,7 @@ from app.utils.rate_limiter import RateLimiter
 
 login_limiter = RateLimiter(times=5, seconds=60)
 register_limiter = RateLimiter(times=3, seconds=60)
+change_password_limiter = RateLimiter(times=5, seconds=60)
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -20,6 +21,8 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 @router.post("/login", response_model=TokenResponse, dependencies=[Depends(login_limiter)])
 async def login(request: LoginRequest, response: Response):
     """Authenticate user and return JWT token."""
+    from datetime import datetime, timezone, timedelta
+
     user = await User.find_one(User.email == request.email)
     if not user:
         raise HTTPException(
@@ -27,7 +30,35 @@ async def login(request: LoginRequest, response: Response):
             detail="Invalid email or password",
         )
 
+    # Check for active lockout
+    now = datetime.now(timezone.utc)
+    if user.lockout_until:
+        lockout_time = user.lockout_until
+        if lockout_time.tzinfo is None:
+            lockout_time = lockout_time.replace(tzinfo=timezone.utc)
+        if lockout_time > now:
+            remaining_minutes = int((lockout_time - now).total_seconds() / 60) + 1
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Account is locked due to multiple failed login attempts. Please try again after {remaining_minutes} minutes.",
+            )
+
     if not verify_password(request.password, user.password_hash):
+        # Increment failed login attempts
+        failed_attempts = getattr(user, "failed_login_attempts", 0) + 1
+        update_fields = {"failed_login_attempts": failed_attempts}
+        
+        if failed_attempts >= 5:
+            update_fields["lockout_until"] = now + timedelta(minutes=15)
+            update_fields["failed_login_attempts"] = 0
+            await user.set(update_fields)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Account is locked due to multiple failed login attempts. Please try again after 15 minutes.",
+            )
+        else:
+            await user.set(update_fields)
+            
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -38,6 +69,10 @@ async def login(request: LoginRequest, response: Response):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated",
         )
+
+    # Reset lockout counters on successful login
+    if getattr(user, "failed_login_attempts", 0) > 0 or user.lockout_until:
+        await user.set({"failed_login_attempts": 0, "lockout_until": None})
 
     token = create_access_token({
         "sub": str(user.id),
@@ -139,7 +174,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 
 
 
-@router.post("/change-password")
+@router.post("/change-password", dependencies=[Depends(change_password_limiter)])
 async def change_password(
     request: ChangePasswordRequest,
     response: Response,

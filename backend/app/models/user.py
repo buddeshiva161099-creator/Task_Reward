@@ -23,6 +23,8 @@ class User(Document):
     email: EmailStr = Field(..., unique=True)
     password_hash: str
     raw_password: Optional[str] = None  # Deprecated: retained only to read legacy documents; never populate.
+    failed_login_attempts: int = Field(default=0)
+    lockout_until: Optional[datetime] = None
     performance_target: Optional[float] = Field(default=None, description="Custom performance target points for payroll calculations")
     role: UserRole = UserRole.EMPLOYEE
     token_version: int = Field(default=0)

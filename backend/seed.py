@@ -38,7 +38,7 @@ async def seed_admin():
     admin_data = {
         "name": "System Admin",
         "email": "admin@company.com",
-        "password": "Admin@123",
+        "password": "VisionAdminSecured2026!#",
         "role": UserRole.ADMIN
     }
 
