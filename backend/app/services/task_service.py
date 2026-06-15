@@ -35,6 +35,12 @@ async def create_task(
     assigned_user = await User.get(PydanticObjectId(assigned_to))
     creator_user = await User.get(PydanticObjectId(created_by))
     tenant = await Tenant.get(PydanticObjectId(tenant_id)) if tenant_id else None
+    tenant_name = tenant.name if tenant else None
+    if not tenant_name and tenant_id:
+        from app.models.company import Company
+        company = await Company.get(PydanticObjectId(tenant_id))
+        if company:
+            tenant_name = company.name
 
     resolved_bu_id: Optional[PydanticObjectId] = None
     if business_unit_id:
@@ -74,7 +80,7 @@ async def create_task(
         task_type=TaskType(task_type),
         deadline=deadline,
         tenant_id=PydanticObjectId(tenant_id) if tenant_id else None,
-        tenant_name=tenant.name if tenant else None,
+        tenant_name=tenant_name,
         business_unit_id=resolved_bu_id,
         business_unit_name=bu_name,
         category_ids=resolved_category_ids,
@@ -149,7 +155,11 @@ async def get_tasks(
         query_parts.append(Task.priority == priority)
 
     if tenant_id is not None:
-        query_parts.append(Task.tenant_id == tenant_id)
+        from app.models.company import Company
+        companies = await Company.find(Company.tenant_id == tenant_id).to_list()
+        company_ids = [c.id for c in companies]
+        tenant_match_ids = [tenant_id] + company_ids
+        query_parts.append(In(Task.tenant_id, tenant_match_ids))
         if business_unit_id is not None:
             query_parts.append(Task.business_unit_id == business_unit_id)
 
@@ -176,7 +186,11 @@ async def get_tasks(
             overdue_update_query["assigned_to"] = {"$in": user_ids}
 
     if tenant_id is not None:
-        overdue_update_query["tenant_id"] = tenant_id
+        from app.models.company import Company
+        companies = await Company.find(Company.tenant_id == tenant_id).to_list()
+        company_ids = [c.id for c in companies]
+        tenant_match_ids = [tenant_id] + company_ids
+        overdue_update_query["tenant_id"] = {"$in": tenant_match_ids}
         if business_unit_id is not None:
             overdue_update_query["business_unit_id"] = business_unit_id
 

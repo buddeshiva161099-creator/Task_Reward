@@ -43,7 +43,13 @@ async def global_search(query: str, tenant_id: str = None) -> Dict[str, List[Dic
     # 3. Search Tasks (tenant-scoped unless platform owner)
     task_query = {"work_description": search_filter}
     if tenant_id is not None:
-        task_query["tenant_id"] = tenant_id
+        from beanie import PydanticObjectId
+        from app.models.company import Company
+        tenant_oid = PydanticObjectId(tenant_id)
+        companies = await Company.find(Company.tenant_id == tenant_oid).to_list()
+        company_ids = [c.id for c in companies]
+        tenant_match_ids = [tenant_oid] + company_ids
+        task_query["tenant_id"] = {"$in": tenant_match_ids}
     tasks = await Task.find(task_query).limit(5).to_list()
 
     return {

@@ -19,11 +19,15 @@ router = APIRouter(prefix="/tasks", tags=["Task Management"])
 
 
 async def _resolve_company_name(tenant_id) -> Optional[str]:
-    """Resolve tenant name from tenant_id."""
+    """Resolve tenant name or company name from tenant_id."""
     if not tenant_id:
         return None
     tenant = await Tenant.get(tenant_id)
-    return tenant.name if tenant else None
+    if tenant:
+        return tenant.name
+    from app.models.company import Company
+    company = await Company.get(tenant_id)
+    return company.name if company else None
 
 
 @router.post("", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
@@ -315,14 +319,17 @@ async def list_tasks(
 
     # Parallel batch fetching
     import asyncio
-    users_data, companies_data, categories_data = await asyncio.gather(
+    from app.models.company import Company
+    users_data, tenants_data, companies_data, categories_data = await asyncio.gather(
         User.find({"_id": {"$in": list(user_ids)}}).to_list(),
         Tenant.find({"_id": {"$in": list(tenant_ids)}}).to_list(),
+        Company.find({"_id": {"$in": list(tenant_ids)}}).to_list(),
         Category.find({"_id": {"$in": list(category_ids_set)}}).to_list()
     )
 
     user_map = {u.id: u.name for u in users_data}
-    company_map = {c.id: c.name for c in companies_data}
+    company_map = {t.id: t.name for t in tenants_data}
+    company_map.update({c.id: c.name for c in companies_data})
     category_map = {cat.id: cat.name for cat in categories_data}
 
     result = []

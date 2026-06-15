@@ -23,6 +23,19 @@ def _scope(q: dict, tenant_id) -> dict:
     return q
 
 
+async def _scope_tasks(q: dict, tenant_id) -> dict:
+    """Append tenant_id or company_id filter for tasks; refuse if missing (tenant isolation)."""
+    if tenant_id is None:
+        return q
+    from app.models.company import Company
+    tenant_oid = PydanticObjectId(tenant_id)
+    companies = await Company.find(Company.tenant_id == tenant_oid).to_list()
+    company_ids = [c.id for c in companies]
+    tenant_match_ids = [tenant_oid] + company_ids
+    q["tenant_id"] = {"$in": tenant_match_ids}
+    return q
+
+
 async def _get_task_data(
     status: Optional[str] = None,
     employee_id: Optional[str] = None,
@@ -49,7 +62,7 @@ async def _get_task_data(
         else:
             query["created_at"] = {"$lte": datetime.fromisoformat(end_date)}
 
-    query = _scope(query, tenant_id)
+    query = await _scope_tasks(query, tenant_id)
 
     tasks = await Task.find(query).sort("-created_at").to_list()
 
@@ -155,7 +168,7 @@ async def generate_employees_excel(tenant_id=None) -> BytesIO:
 
     # Optimized batch task count using aggregation
     task_match = {"assigned_to": {"$in": employee_ids}}
-    task_match = _scope(task_match, tenant_id)
+    task_match = await _scope_tasks(task_match, tenant_id)
     pipeline = [
         {"$match": task_match},
         {"$group": {
