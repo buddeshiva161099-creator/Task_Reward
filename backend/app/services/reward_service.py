@@ -137,7 +137,11 @@ async def apply_performance_score(task: Task, is_rejection: bool = False) -> Tup
     return points, details
 
 
-async def get_leaderboard(limit: int = 10, user_ids: Optional[list] = None):
+async def get_leaderboard(
+    limit: int = 10,
+    user_ids: Optional[list] = None,
+    tenant_id: Optional[PydanticObjectId] = None,
+):
     """Get top employees by reward points (all non-admin roles). Filtered by user_ids list if provided."""
     from app.models.user import UserRole
     from beanie.operators import In
@@ -149,10 +153,13 @@ async def get_leaderboard(limit: int = 10, user_ids: Optional[list] = None):
         UserRole.EMPLOYEE,
     ]
     query_conditions = [User.is_active == True]
+    if tenant_id is not None:
+        query_conditions.append(User.tenant_id == tenant_id)
     if user_ids is not None:
         query_conditions.append(In(User.id, user_ids))
     else:
         query_conditions.append(In(User.role, NON_ADMIN_ROLES))
+
 
     employees = await User.find(*query_conditions).sort("-reward_points").limit(limit).to_list()
 

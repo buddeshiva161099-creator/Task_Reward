@@ -147,11 +147,11 @@ async def get_admin_dashboard(
         role_counts["total_all_inclusive"]["absent"] += stat["total"] - stat["present"]
 
     if visible_ids is not None:
-        task_counts = await get_task_counts(user_ids=list(visible_ids), business_unit_id=business_unit_id)
-        leaderboard = await get_leaderboard(limit=5, user_ids=list(visible_ids))
+        task_counts = await get_task_counts(user_ids=list(visible_ids), business_unit_id=business_unit_id, tenant_id=current_user.tenant_id)
+        leaderboard = await get_leaderboard(limit=5, user_ids=list(visible_ids), tenant_id=current_user.tenant_id)
     else:
-        task_counts = await get_task_counts(business_unit_id=business_unit_id)
-        leaderboard = await get_leaderboard(limit=5)
+        task_counts = await get_task_counts(business_unit_id=business_unit_id, tenant_id=current_user.tenant_id)
+        leaderboard = await get_leaderboard(limit=5, tenant_id=current_user.tenant_id)
 
     # Task priority distribution - optimized with single aggregation
     priority_pipeline = []
@@ -190,7 +190,7 @@ async def get_admin_dashboard(
         )
 
     user_ids = list(set([a.user_id for a in recent_activities]))
-    users = await User.find(In(User.id, user_ids)).to_list()
+    users = await User.find(In(User.id, user_ids), User.tenant_id == current_user.tenant_id).to_list()
     user_map = {u.id: u.name for u in users}
 
     activity_list = [
@@ -208,10 +208,10 @@ async def get_admin_dashboard(
     # Total rewards given
     if visible_ids is not None:
         total_rewards = await Task.find(
-            Task.reward_given == True, In(Task.assigned_to, list(visible_ids))
+            Task.reward_given == True, Task.tenant_id == current_user.tenant_id, In(Task.assigned_to, list(visible_ids))
         ).count()
     else:
-        total_rewards = await Task.find(Task.reward_given == True).count()
+        total_rewards = await Task.find(Task.reward_given == True, Task.tenant_id == current_user.tenant_id).count()
 
     return {
         "employees": {
@@ -222,7 +222,7 @@ async def get_admin_dashboard(
         "tasks": task_counts,
         "priority_distribution": priority_dist,
         "attendance_today": await _get_today_attendance_stats(
-            total_employees, visible_ids
+            total_employees, visible_ids, tenant_id=current_user.tenant_id
         ),
         "leaderboard": leaderboard,
         "recent_activity": activity_list,
@@ -235,6 +235,7 @@ async def get_admin_dashboard(
             end_date=get_date_range_for_filter(filter_type, custom_start, custom_end)[
                 1
             ],
+            tenant_id=current_user.tenant_id,
         ),
     }
 
@@ -250,11 +251,14 @@ async def get_employee_dashboard(
     if not user:
         return None
 
-    task_counts = await get_task_counts(user_id=user_id)
+    task_counts = await get_task_counts(user_id=user_id, tenant_id=user.tenant_id)
 
     # Recent activity for this employee
     recent_activities = (
-        await ActivityLog.find(ActivityLog.user_id == PydanticObjectId(user_id))
+        await ActivityLog.find(
+            ActivityLog.user_id == PydanticObjectId(user_id),
+            ActivityLog.tenant_id == user.tenant_id
+        )
         .sort("-timestamp")
         .limit(10)
         .to_list()
@@ -275,12 +279,13 @@ async def get_employee_dashboard(
     # Rewards earned
     rewards_earned = await Task.find(
         Task.assigned_to == PydanticObjectId(user_id),
+        Task.tenant_id == user.tenant_id,
         Task.reward_given == True,
     ).count()
 
     # Priority distribution - optimized with single aggregation
     priority_pipeline = [
-        {"$match": {"assigned_to": PydanticObjectId(user_id)}},
+        {"$match": {"assigned_to": PydanticObjectId(user_id), "tenant_id": user.tenant_id}},
         {"$group": {"_id": "$priority", "count": {"$sum": 1}}},
     ]
     priority_results = await Task.aggregate(priority_pipeline).to_list()
@@ -295,6 +300,7 @@ async def get_employee_dashboard(
 
     attendance_records = await Attendance.find(
         Attendance.user_id == PydanticObjectId(user_id),
+        Attendance.tenant_id == user.tenant_id,
         Attendance.check_in >= history_start,
     ).to_list()
 
@@ -352,6 +358,7 @@ async def get_employee_dashboard(
 
     completed_this_month = await Task.find(
         Task.assigned_to == PydanticObjectId(user_id),
+        Task.tenant_id == user.tenant_id,
         Task.completed_at >= month_start,
         Task.completed_at < month_end,
         In(
@@ -362,6 +369,7 @@ async def get_employee_dashboard(
 
     due_this_month = await Task.find(
         Task.assigned_to == PydanticObjectId(user_id),
+        Task.tenant_id == user.tenant_id,
         Task.deadline >= month_start,
         Task.deadline < month_end,
     ).count()
@@ -398,6 +406,7 @@ async def get_employee_dashboard(
             end_date=get_date_range_for_filter(filter_type, custom_start, custom_end)[
                 1
             ],
+            tenant_id=user.tenant_id,
         ),
     }
 
@@ -405,12 +414,20 @@ async def get_employee_dashboard(
 async def get_all_attendance_summary(
     visible_employee_ids=None,
     business_unit_id: Optional[PydanticObjectId] = None,
+    tenant_id: Optional[PydanticObjectId] = None,
 ):
     """Get last 5 days attendance summary for all employees (or a hierarchy-scoped subset)."""
+    query_conditions = []
+    if tenant_id is not None:
+        query_conditions.append(User.tenant_id == tenant_id)
+
     if visible_employee_ids is not None:
-        employees = await User.find(In(User.id, list(visible_employee_ids))).to_list()
+        query_conditions.append(In(User.id, list(visible_employee_ids)))
     else:
-        employees = await User.find(In(User.role, NON_ADMIN_ROLES)).to_list()
+        query_conditions.append(In(User.role, NON_ADMIN_ROLES))
+
+    employees = await User.find(*query_conditions).to_list()
+
 
     if business_unit_id is not None:
         employees = [e for e in employees if e.business_unit_id == business_unit_id]
@@ -476,19 +493,26 @@ async def get_all_attendance_summary(
     return summary
 
 
-async def _get_today_attendance_stats(total_employees: int, visible_employee_ids=None):
+async def _get_today_attendance_stats(total_employees: int, visible_employee_ids=None, tenant_id: Optional[PydanticObjectId] = None):
     """Helper to get today's attendance stats using optimized database-level aggregation."""
     # Using IST for consistent day boundaries.
     today_start = ist_now().replace(hour=0, minute=0, second=0, microsecond=0)
 
     match_query = GTE(Attendance.check_in, today_start)
+    if tenant_id is not None:
+        match_query = {"$and": [match_query, {"tenant_id": tenant_id}]}
+
     if visible_employee_ids is not None:
-        match_query = {
-            "$and": [match_query, In(Attendance.user_id, list(visible_employee_ids))]
-        }
+        if isinstance(match_query, dict) and "$and" in match_query:
+            match_query["$and"].append(In(Attendance.user_id, list(visible_employee_ids)))
+        else:
+            match_query = {
+                "$and": [match_query, In(Attendance.user_id, list(visible_employee_ids))]
+            }
 
     # Get count of unique users who checked in today
     present_count = len(await Attendance.distinct("user_id", match_query))
+
     absent_count = max(0, total_employees - present_count)
 
     return {"present": present_count, "absent": absent_count, "total": total_employees}
@@ -548,14 +572,20 @@ def get_date_range_for_filter(
 
 
 async def get_performance_metrics(
-    user_ids: Optional[List[PydanticObjectId]], start_date: datetime, end_date: datetime
+    user_ids: Optional[List[PydanticObjectId]],
+    start_date: datetime,
+    end_date: datetime,
+    tenant_id: Optional[PydanticObjectId] = None,
 ) -> dict:
     """Calculate performance metrics using a single MongoDB aggregation pipeline."""
     from app.models.task import Task, TaskStatus
 
     match_query = {"deadline": {"$gte": start_date, "$lte": end_date}}
+    if tenant_id is not None:
+        match_query["tenant_id"] = tenant_id
     if user_ids is not None:
         match_query["assigned_to"] = {"$in": user_ids}
+
 
     now = datetime.now(timezone.utc)
 

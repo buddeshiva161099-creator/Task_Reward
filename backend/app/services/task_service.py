@@ -323,15 +323,19 @@ async def get_task_counts(
     user_id: Optional[str] = None,
     user_ids: Optional[list] = None,
     business_unit_id: Optional[PydanticObjectId] = None,
+    tenant_id: Optional[PydanticObjectId] = None,
 ):
     """Get task count summary using a single aggregation pipeline."""
     base_query = {}
+    if tenant_id is not None:
+        base_query["tenant_id"] = tenant_id
     if user_id:
         base_query["assigned_to"] = PydanticObjectId(user_id)
     elif user_ids is not None:
         base_query["assigned_to"] = {"$in": user_ids}
     if business_unit_id is not None:
         base_query["business_unit_id"] = business_unit_id
+
 
     # Auto-update overdue tasks first (this still requires an update_many or individual updates)
     from datetime import timezone

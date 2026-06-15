@@ -380,6 +380,7 @@ async def get_summary(
     return await dashboard_service.get_all_attendance_summary(
         visible_employee_ids=visible_ids,
         business_unit_id=active_bu_id,
+        tenant_id=current_user.tenant_id,
     )
 
 @router.get("/geofence-status")
