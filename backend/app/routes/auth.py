@@ -1,7 +1,7 @@
 """
 Authentication routes - login, register, and current user.
 """
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Response
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, ChangePasswordRequest
 from app.models.user import User, UserRole
 from app.auth.password import hash_password, verify_password, validate_password_strength
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login", response_model=TokenResponse, dependencies=[Depends(login_limiter)])
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, response: Response):
     """Authenticate user and return JWT token."""
     user = await User.find_one(User.email == request.email)
     if not user:
@@ -39,7 +39,21 @@ async def login(request: LoginRequest):
             detail="Account is deactivated",
         )
 
-    token = create_access_token({"sub": str(user.id), "role": user.role.value})
+    token = create_access_token({
+        "sub": str(user.id),
+        "role": user.role.value,
+        "token_version": getattr(user, "token_version", 0)
+    })
+
+    # Set httpOnly cookie for the token
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
 
     return TokenResponse(
         access_token=token,
@@ -128,6 +142,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 @router.post("/change-password")
 async def change_password(
     request: ChangePasswordRequest,
+    response: Response,
     current_user: User = Depends(get_current_user)
 ):
     """Change the current user's password."""
@@ -147,6 +162,18 @@ async def change_password(
 
     current_user.password_hash = hash_password(request.new_password)
     current_user.raw_password = None
+    current_user.token_version = (current_user.token_version or 0) + 1
     await current_user.save()
 
+    # Clear cookie on password change
+    response.delete_cookie(key="access_token", path="/")
+
     return {"message": "Password updated successfully"}
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Log out user by clearing cookies."""
+    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(key="owner_access_token", path="/")
+    return {"message": "Successfully logged out"}

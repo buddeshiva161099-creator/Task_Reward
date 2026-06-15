@@ -97,7 +97,7 @@ async def test_onboarding_audit(test_admin, db, test_company):
         payload = {
             "email": "new_hire@company.com",
             "name": "New Hire",
-            "password": "Password123",
+            "password": "SecurePassword123!@#",
             "mobile": "1234567890",
             "role": "manager",
             "job_title": "Manager",

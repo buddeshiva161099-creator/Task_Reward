@@ -7,16 +7,13 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 });
 
-// Request interceptor - attach JWT token and active business unit header
+// Request interceptor - attach active business unit header
 api.interceptors.request.use(
   (config) => {
     if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('access_token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
       const activeBuId = localStorage.getItem('active_business_unit_id');
       if (activeBuId) {
         config.headers['X-Active-Business-Unit-Id'] = activeBuId;
@@ -46,9 +43,11 @@ api.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       typeof window !== 'undefined' &&
-      window.location.pathname !== '/login'
+      !window.location.pathname.startsWith('/owner') &&
+      window.location.pathname !== '/login' &&
+      window.location.pathname !== '/register' &&
+      window.location.pathname !== '/'
     ) {
-      localStorage.removeItem('access_token');
       localStorage.removeItem('user');
       window.location.href = '/login';
     }

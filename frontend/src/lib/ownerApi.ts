@@ -7,16 +7,11 @@ const ownerApi = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
 });
 
 ownerApi.interceptors.request.use(
   (config) => {
-    if (typeof window !== 'undefined') {
-      const token = localStorage.getItem('owner_access_token');
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
-      }
-    }
     return config;
   },
   (error) => Promise.reject(error)
@@ -28,9 +23,9 @@ ownerApi.interceptors.response.use(
     if (
       error.response?.status === 401 &&
       typeof window !== 'undefined' &&
-      !window.location.pathname.startsWith('/owner/login')
+      window.location.pathname.startsWith('/owner') &&
+      window.location.pathname !== '/owner/login'
     ) {
-      localStorage.removeItem('owner_access_token');
       localStorage.removeItem('platform_owner');
       window.location.href = '/owner/login';
     }

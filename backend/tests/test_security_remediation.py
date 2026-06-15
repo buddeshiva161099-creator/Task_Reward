@@ -38,7 +38,7 @@ def test_public_registration_is_disabled_by_default(monkeypatch):
     request = RegisterRequest(
         name="Bad Actor",
         email="bad@example.com",
-        password="password123",
+        password="SecurePassword123!@#",
         role="admin",
     )
 
@@ -54,7 +54,7 @@ def test_public_registration_cannot_create_privileged_roles(monkeypatch):
     request = RegisterRequest(
         name="Bad Actor",
         email="bad@example.com",
-        password="password123",
+        password="SecurePassword123!@#",
         role="admin",
     )
 

@@ -54,7 +54,6 @@ export default function NotificationBell() {
   useEffect(() => {
     if (user?.id) {
       const connectWS = () => {
-        const token = localStorage.getItem('access_token');
         let wsUrl = '';
 
         if (process.env.NEXT_PUBLIC_WS_URL) {
@@ -85,10 +84,6 @@ export default function NotificationBell() {
             ? (window.location.hostname === 'localhost' ? `${window.location.hostname}:8000` : window.location.host)
             : 'localhost:8000';
           wsUrl = `${protocol}//${defaultHost}/notifications/ws/${user.id}`;
-        }
-
-        if (token) {
-          wsUrl += `?token=${token}`;
         }
 
         const ws = new WebSocket(wsUrl);

@@ -97,15 +97,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchUser = useCallback(async () => {
     try {
-      const token = localStorage.getItem('access_token');
-      if (!token) {
-        setIsLoading(false);
-        return;
-      }
       const response = await api.get('/auth/me');
       setUser(response.data);
     } catch {
-      localStorage.removeItem('access_token');
       localStorage.removeItem('user');
       setUser(null);
     } finally {
@@ -151,8 +145,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       const response = await api.post('/auth/login', { email, password });
-      const { access_token, user: userData } = response.data;
-      localStorage.setItem('access_token', access_token);
+      const { user: userData } = response.data;
       localStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
     } catch (error) {
@@ -161,8 +154,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('access_token');
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
     localStorage.removeItem('user');
     localStorage.removeItem(ACTIVE_BU_KEY);
     localStorage.removeItem(ACTIVE_COMPANY_KEY);
@@ -172,7 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActiveBusinessUnitIdState(null);
     setActiveCompanyIdState(null);
     window.location.href = '/login';
-  };
+  }, []);
 
   const role = user?.role;
 

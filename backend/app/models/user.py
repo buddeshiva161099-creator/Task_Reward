@@ -25,6 +25,7 @@ class User(Document):
     raw_password: Optional[str] = None  # Deprecated: retained only to read legacy documents; never populate.
     performance_target: Optional[float] = Field(default=None, description="Custom performance target points for payroll calculations")
     role: UserRole = UserRole.EMPLOYEE
+    token_version: int = Field(default=0)
     tenant_id: Optional[PydanticObjectId] = None
     primary_company_id: Optional[PydanticObjectId] = None
     scope_company_ids: List[PydanticObjectId] = Field(default_factory=list)

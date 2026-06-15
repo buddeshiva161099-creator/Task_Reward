@@ -61,9 +61,15 @@ async def tenant_status_middleware(request: Request, call_next):
         return await call_next(request)
 
     auth = request.headers.get("authorization", "")
-    if not auth.lower().startswith("bearer "):
+    token = None
+    if auth.lower().startswith("bearer "):
+        token = auth.split(" ", 1)[1].strip()
+    else:
+        token = request.cookies.get("access_token") or request.cookies.get("owner_access_token")
+
+    if not token:
         return await call_next(request)
-    token = auth.split(" ", 1)[1].strip()
+
     from app.auth.jwt_handler import decode_access_token
     payload = decode_access_token(token)
     if not payload or payload.get("aud") == "platform":
@@ -98,4 +104,19 @@ async def tenant_status_middleware(request: Request, call_next):
             },
         )
     return await call_next(request)
+
+
+async def security_headers_middleware(request: Request, call_next):
+    """Append security headers to all responses and remove info disclosure headers."""
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; object-src 'none';"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+    if "X-Powered-By" in response.headers:
+        del response.headers["X-Powered-By"]
+    if "Server" in response.headers:
+        del response.headers["Server"]
+    return response
 

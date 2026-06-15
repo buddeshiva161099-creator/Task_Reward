@@ -25,7 +25,7 @@ async function typeIntoReactInput(
 
 test.describe('Tenant admin: Companies', () => {
   test('list, create, switch scope, deactivate, reactivate a company', async ({ page }) => {
-    const { tempPassword } = await ensureBstkAdminLoggedIn();
+    const { token, tempPassword } = await ensureBstkAdminLoggedIn();
     await setBstkAdminInBrowser(page, tempPassword);
 
     await page.goto('/admin/companies');
@@ -63,7 +63,7 @@ test.describe('Tenant admin: Companies', () => {
 
     const allCompanies = await fetch(`${BACKEND_URL}/companies`, {
       headers: {
-        Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('access_token'))}`,
+        Authorization: `Bearer ${token}`,
         'X-Active-Company-Id': (await page.evaluate(() => localStorage.getItem('active_company_id'))) || '',
       },
     }).then((r) => r.json());
@@ -74,7 +74,7 @@ test.describe('Tenant admin: Companies', () => {
       const deactivateRes = await fetch(`${BACKEND_URL}/companies/${created.id}/deactivate`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('access_token'))}`,
+          Authorization: `Bearer ${token}`,
         },
       });
       expect(deactivateRes.ok).toBeTruthy();

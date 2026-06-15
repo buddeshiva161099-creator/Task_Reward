@@ -223,16 +223,57 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-from fastapi.staticfiles import StaticFiles
+from app.middleware import exception_handler_middleware, tenant_status_middleware, security_headers_middleware
+from fastapi.responses import FileResponse
+from fastapi import Depends, HTTPException, status
+from app.auth.dependencies import get_current_user
+from app.models.user import User, UserRole
 import os
 
 # Create uploads directory if not exists
 os.makedirs("uploads/chat", exist_ok=True)
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+os.makedirs("uploads/identity_docs", exist_ok=True)
 
-# Register custom exception handler
+
+@app.get("/uploads/{file_type}/{tenant_sub}/{filename}", tags=["Uploads"])
+async def get_uploaded_file(
+    file_type: str,
+    tenant_sub: str,
+    filename: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Securely serve uploaded identity documents and chat files, enforcing tenant isolation."""
+    # 1. Validate file type
+    if file_type not in {"identity_docs", "chat"}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File type not found")
+
+    # 2. Check tenant scoping / isolation
+    if current_user.role != UserRole.PLATFORM_OWNER:
+        expected_tenant_sub = f"tenant_{current_user.tenant_id}" if current_user.tenant_id else "global"
+        if tenant_sub != expected_tenant_sub:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. Tenant isolation check failed."
+            )
+
+    # 3. Path traversal prevention
+    file_path = os.path.normpath(os.path.join("uploads", file_type, tenant_sub, filename))
+    base_dir = os.path.abspath("uploads")
+    safe_path = os.path.abspath(file_path)
+
+    if not safe_path.startswith(base_dir):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path")
+
+    if not os.path.exists(safe_path) or not os.path.isfile(safe_path):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    return FileResponse(safe_path)
+
+
+# Register custom exception handler and middlewares
 app.middleware("http")(exception_handler_middleware)
 app.middleware("http")(tenant_status_middleware)
+app.middleware("http")(security_headers_middleware)
 
 @app.middleware("http")
 async def jwt_expiry_warning_middleware(request, call_next):

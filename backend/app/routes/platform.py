@@ -117,7 +117,7 @@ async def _resolve_plan_code(plan_id: Optional[PydanticObjectId]) -> Optional[st
 # ---------- Auth ----------
 
 @router.post("/auth/login", response_model=PlatformTokenResponse, dependencies=[Depends(platform_login_limiter)])
-async def platform_login(request: Request, body: PlatformLoginRequest):
+async def platform_login(request: Request, body: PlatformLoginRequest, response: Response):
     user = await User.find_one(User.email == body.email)
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(
@@ -146,7 +146,21 @@ async def platform_login(request: Request, body: PlatformLoginRequest):
     await user.save()
 
     token = create_access_token(
-        {"sub": str(user.id), "role": user.role.value}
+        {
+            "sub": str(user.id),
+            "role": user.role.value,
+            "token_version": getattr(user, "token_version", 0)
+        }
+    )
+
+    # Set httpOnly cookie for the owner token
+    response.set_cookie(
+        key="owner_access_token",
+        value=token,
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 
     await PlatformAuditService.log(

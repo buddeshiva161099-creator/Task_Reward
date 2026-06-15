@@ -1,7 +1,7 @@
 """
 FastAPI dependencies for authentication and authorization.
 """
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.auth.jwt_handler import decode_access_token
 from app.models.user import User, UserRole
@@ -12,10 +12,27 @@ security = HTTPBearer()
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
 ) -> User:
-    """Extract and validate the current user from JWT token."""
-    token = credentials.credentials
+    """Extract and validate the current user from JWT token (via header or cookie) and verify token version."""
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    
+    if not token:
+        token = request.cookies.get("access_token")
+        
+    if not token:
+        token = request.cookies.get("owner_access_token")
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     payload = decode_access_token(token)
 
     if payload is None:
@@ -43,6 +60,14 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is deactivated",
+        )
+
+    # Validate token version to handle password resets/logout invalidation
+    token_version = payload.get("token_version", 0)
+    if getattr(user, "token_version", 0) != token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token has been invalidated",
         )
 
     return user
