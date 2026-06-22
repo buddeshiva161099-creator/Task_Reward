@@ -6,13 +6,24 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function ensureUTC(dateString: string): string {
-  if (!dateString) return dateString;
-  if (dateString.includes('Z') || dateString.includes('+')) return dateString;
-  return `${dateString}+05:30`;
+  if (!dateString) return '';
+  const trimmed = String(dateString).trim();
+  if (!trimmed) return '';
+  if (trimmed.includes('Z') || trimmed.includes('+')) return trimmed;
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(trimmed)) {
+    return `${trimmed}+05:30`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return `${trimmed}T00:00:00+05:30`;
+  }
+  return `${trimmed}+05:30`;
 }
 
 export function formatDate(dateString: string): string {
-  return new Date(ensureUTC(dateString)).toLocaleDateString('en-IN', {
+  if (!dateString) return '-';
+  const d = new Date(ensureUTC(dateString));
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleDateString('en-IN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -21,7 +32,10 @@ export function formatDate(dateString: string): string {
 }
 
 export function formatDateTime(dateString: string): string {
-  return new Date(ensureUTC(dateString)).toLocaleString('en-IN', {
+  if (!dateString) return '-';
+  const d = new Date(ensureUTC(dateString));
+  if (isNaN(d.getTime())) return '-';
+  return d.toLocaleString('en-IN', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',

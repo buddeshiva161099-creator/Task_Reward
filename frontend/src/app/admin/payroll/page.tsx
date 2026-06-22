@@ -719,8 +719,8 @@ export default function PayrollManagementPage() {
               <tbody className="divide-y divide-slate-100 font-medium">
                 {drafts.map((d) => {
                   const isExpanded = expandedPayrollId === d.id;
-                  const totalEarnings = d.basic + d.hra + d.special_allowance + d.overtime_pay + d.incentives + d.bonuses - d.lop_deduction;
-                  const totalDeducts = d.pf_deduction + d.esi_deduction + d.tax_deduction + d.penalties + d.deductions;
+                  const totalEarnings = (d.basic ?? 0) + (d.hra ?? 0) + (d.special_allowance ?? 0) + (d.overtime_pay ?? 0) + (d.incentives ?? 0) + (d.bonuses ?? 0) - (d.lop_deduction ?? 0);
+                  const totalDeducts = (d.pf_deduction ?? 0) + (d.esi_deduction ?? 0) + (d.tax_deduction ?? 0) + (d.penalties ?? 0) + (d.deductions ?? 0);
                   
                   return (
                     <Fragment key={d.id}>
@@ -742,11 +742,11 @@ export default function PayrollManagementPage() {
                           </div>
                         </td>
                         <td className="py-4 px-4 text-slate-500 font-bold">{d.month}</td>
-                        <td className="py-4 px-3 text-right text-slate-600">₹{d.base_salary.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="py-4 px-3 text-right text-emerald-700">₹{totalEarnings.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="py-4 px-3 text-right text-rose-700">₹{totalDeducts.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="py-4 px-3 text-right text-amber-700 font-semibold">₹{d.lop_deduction.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="py-4 px-3 text-right font-black text-indigo-700">₹{d.net_salary.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="py-4 px-3 text-right text-slate-600">₹{(d.base_salary ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td className="py-4 px-3 text-right text-emerald-700">₹{(totalEarnings ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td className="py-4 px-3 text-right text-rose-700">₹{(totalDeducts ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td className="py-4 px-3 text-right text-amber-700 font-semibold">₹{(d.lop_deduction ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
+                        <td className="py-4 px-3 text-right font-black text-indigo-700">₹{(d.net_salary ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td className="py-4 px-4 text-center">
                           <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
                             d.status === 'draft' ? 'bg-amber-50 text-amber-700 border-amber-200' :
@@ -828,34 +828,34 @@ export default function PayrollManagementPage() {
                               <div>
                                 <span className="block text-slate-400 font-extrabold uppercase text-[9px] tracking-wider">Salary Components</span>
                                 <div className="space-y-1 mt-1 text-slate-700">
-                                  <div>Basic: ₹{d.basic.toLocaleString('en-IN')}</div>
-                                  <div>HRA: ₹{d.hra.toLocaleString('en-IN')}</div>
-                                  <div>Allowance: ₹{d.special_allowance.toLocaleString('en-IN')}</div>
+                                  <div>Basic: ₹{(d.basic ?? 0).toLocaleString('en-IN')}</div>
+                                  <div>HRA: ₹{(d.hra ?? 0).toLocaleString('en-IN')}</div>
+                                  <div>Allowance: ₹{(d.special_allowance ?? 0).toLocaleString('en-IN')}</div>
                                 </div>
                               </div>
                               <div>
                                 <span className="block text-slate-400 font-extrabold uppercase text-[9px] tracking-wider">Deductions breakdown</span>
                                 <div className="space-y-1 mt-1 text-slate-700">
-                                  <div>Provident Fund (PF): ₹{d.pf_deduction.toLocaleString('en-IN')}</div>
-                                  <div>ESI: ₹{d.esi_deduction.toLocaleString('en-IN')}</div>
-                                  <div>Income Tax: ₹{d.tax_deduction.toLocaleString('en-IN')}</div>
+                                  <div>Provident Fund (PF): ₹{(d.pf_deduction ?? 0).toLocaleString('en-IN')}</div>
+                                  <div>ESI: ₹{(d.esi_deduction ?? 0).toLocaleString('en-IN')}</div>
+                                  <div>Income Tax: ₹{(d.tax_deduction ?? 0).toLocaleString('en-IN')}</div>
                                 </div>
                               </div>
                               <div>
                                 <span className="block text-slate-400 font-extrabold uppercase text-[9px] tracking-wider">Attendance statistics</span>
                                 <div className="space-y-1 mt-1 text-slate-700">
-                                  <div>Work days in month: {d.total_working_days} days</div>
-                                  <div>Present: {d.present_days} days</div>
-                                  <div>Absent (LOP): {d.absent_days} days</div>
-                                  <div>Paid leaves: {d.paid_leaves} days</div>
+                                  <div>Work days in month: {d.total_working_days ?? 0} days</div>
+                                  <div>Present: {d.present_days ?? 0} days</div>
+                                  <div>Absent (LOP): {d.absent_days ?? 0} days</div>
+                                  <div>Paid leaves: {d.paid_leaves ?? 0} days</div>
                                 </div>
                               </div>
                               <div>
                                 <span className="block text-slate-400 font-extrabold uppercase text-[9px] tracking-wider">Additions / Penalties</span>
                                 <div className="space-y-1 mt-1 text-slate-700">
-                                  <div>Overtime Pay: ₹{d.overtime_pay.toLocaleString('en-IN')}</div>
-                                  <div>Incentives / Bonus: ₹{(d.incentives + d.bonuses).toLocaleString('en-IN')}</div>
-                                  <div className="text-rose-600">Late penalties: ₹{d.penalties.toLocaleString('en-IN')}</div>
+                                  <div>Overtime Pay: ₹{(d.overtime_pay ?? 0).toLocaleString('en-IN')}</div>
+                                  <div>Incentives / Bonus: ₹{((d.incentives ?? 0) + (d.bonuses ?? 0)).toLocaleString('en-IN')}</div>
+                                  <div className="text-rose-600">Late penalties: ₹{(d.penalties ?? 0).toLocaleString('en-IN')}</div>
                                 </div>
                               </div>
                             </div>
@@ -988,31 +988,31 @@ export default function PayrollManagementPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span>Basic Salary:</span>
-                      <span className="font-bold">₹{displayPayslip.basic.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.basic ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>HRA Component:</span>
-                      <span className="font-bold">₹{displayPayslip.hra.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.hra ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Special Allowance:</span>
-                      <span className="font-bold">₹{displayPayslip.special_allowance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.special_allowance ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Overtime Pay:</span>
-                      <span className="font-bold text-emerald-700">+ ₹{displayPayslip.overtime_pay.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold text-emerald-700">+ ₹{(displayPayslip.overtime_pay ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Incentives & Bonuses:</span>
-                      <span className="font-bold text-emerald-700">+ ₹{(displayPayslip.incentives + displayPayslip.bonuses).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold text-emerald-700">+ ₹{((displayPayslip.incentives ?? 0) + (displayPayslip.bonuses ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between text-rose-700 font-semibold border-t pt-1 bg-rose-50/30 px-1 rounded">
                       <span>Loss of Pay (LOP) Deduction:</span>
-                      <span>- ₹{displayPayslip.lop_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span>- ₹{(displayPayslip.lop_deduction ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between font-black border-t pt-2 text-slate-800">
                       <span>Gross Earned:</span>
-                      <span>₹{(displayPayslip.basic + displayPayslip.hra + displayPayslip.special_allowance + displayPayslip.overtime_pay + displayPayslip.incentives + displayPayslip.bonuses - displayPayslip.lop_deduction).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span>₹{((displayPayslip.basic ?? 0) + (displayPayslip.hra ?? 0) + (displayPayslip.special_allowance ?? 0) + (displayPayslip.overtime_pay ?? 0) + (displayPayslip.incentives ?? 0) + (displayPayslip.bonuses ?? 0) - (displayPayslip.lop_deduction ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                   </div>
                 </div>
@@ -1023,27 +1023,27 @@ export default function PayrollManagementPage() {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span>Provident Fund (PF):</span>
-                      <span className="font-bold">₹{displayPayslip.pf_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.pf_deduction ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>ESI Contribution:</span>
-                      <span className="font-bold">₹{displayPayslip.esi_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.esi_deduction ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Professional Income Tax:</span>
-                      <span className="font-bold">₹{displayPayslip.tax_deduction.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.tax_deduction ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Late Check-in Penalties:</span>
-                      <span className="font-bold">₹{displayPayslip.penalties.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.penalties ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>Other Manual Deductions:</span>
-                      <span className="font-bold">₹{displayPayslip.deductions.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-bold">₹{(displayPayslip.deductions ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                     <div className="flex justify-between font-black border-t pt-2 text-slate-800 mt-auto">
                       <span>Total Deducted:</span>
-                      <span>₹{(displayPayslip.pf_deduction + displayPayslip.esi_deduction + displayPayslip.tax_deduction + displayPayslip.penalties + displayPayslip.deductions).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                      <span>₹{((displayPayslip.pf_deduction ?? 0) + (displayPayslip.esi_deduction ?? 0) + (displayPayslip.tax_deduction ?? 0) + (displayPayslip.penalties ?? 0) + (displayPayslip.deductions ?? 0)).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
                     </div>
                   </div>
                 </div>
@@ -1056,7 +1056,7 @@ export default function PayrollManagementPage() {
                   <span className="text-[10px] font-extrabold uppercase tracking-wider block text-indigo-500">Net Payable Amount</span>
                   <span className="text-xs italic text-indigo-600">Earned Gross minus Total Deductions</span>
                 </div>
-                <span className="text-xl font-black">₹{displayPayslip.net_salary.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+                <span className="text-xl font-black">₹{(displayPayslip.net_salary ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
               </div>
             </div>
 

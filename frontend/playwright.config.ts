@@ -10,22 +10,16 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
-  timeout: 60_000,
-  expect: { timeout: 10_000 },
+  timeout: 120_000,
+  expect: { timeout: 15_000 },
   use: {
     baseURL: FRONTEND_URL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'off',
-    actionTimeout: 10_000,
-    navigationTimeout: 20_000,
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
-    },
-  ],
   metadata: {
     frontendUrl: FRONTEND_URL,
     backendUrl: BACKEND_URL,

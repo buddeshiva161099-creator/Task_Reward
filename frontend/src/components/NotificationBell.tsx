@@ -203,7 +203,7 @@ export default function NotificationBell() {
           isOpen && "text-indigo-600"
         )} />
         {unreadCount > 0 && (
-          <span className="absolute top-2 right-2 w-4 h-4 bg-rose-500 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white animate-in zoom-in duration-300">
+          <span className="absolute top-2 right-2 w-4 h-4 bg-indigo-600 text-white text-[10px] font-black flex items-center justify-center rounded-full border-2 border-white animate-in zoom-in duration-300">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}

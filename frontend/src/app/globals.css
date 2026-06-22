@@ -322,7 +322,8 @@ body {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 .input::placeholder {
-  color: #94a3b8;
+  color: #b0bec5;
+  font-style: italic;
 }
 
 /* ── Input with Icon ── */

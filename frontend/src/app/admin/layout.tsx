@@ -157,7 +157,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <NotificationBell />
             {/* Settings Dropdown */}
             <div className="relative group">
-              <button className="p-2 hover:bg-slate-100 rounded-full transition-colors relative">
+              <button className="p-2 hover:bg-slate-100 rounded-full transition-colors relative" aria-label="Open settings">
                 <Settings className="w-5 h-5 text-slate-500" />
               </button>
               <div className="absolute right-0 top-full pt-2 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-50">

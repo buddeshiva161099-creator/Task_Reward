@@ -346,8 +346,8 @@ export default function EmployeeTasksPage() {
                     <p className="text-base font-medium text-slate-800 leading-relaxed mb-3">{task.work_description}</p>
 
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium">
-                      <span className={`capitalize ${getPriorityColor(task.priority)}`}>
-                        {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)} priority
+                      <span className={`capitalize ${getPriorityColor(task.priority || 'medium')}`}>
+                        {(task.priority || 'medium').charAt(0).toUpperCase() + (task.priority || 'medium').slice(1)} priority
                       </span>
                       <span>•</span>
                       <span className="flex items-center gap-1">
@@ -409,9 +409,9 @@ export default function EmployeeTasksPage() {
                       title="Remarks & Communication"
                     >
                       <MessageSquarePlus className={cn("w-5 h-5", isExpanded ? "text-white" : "text-purple-600")} />
-                      {task.remarks.length > 0 && !isExpanded && (
+                      {(task.remarks || []).length > 0 && !isExpanded && (
                         <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center font-black shadow-sm border-2 border-white">
-                          {task.remarks.length}
+                          {(task.remarks || []).length}
                         </span>
                       )}
                     </button>
@@ -428,11 +428,11 @@ export default function EmployeeTasksPage() {
                 </div>
 
                 {/* Latest Remark Snippet */}
-                {!isExpanded && task.remarks.length > 0 && (
+                {!isExpanded && (task.remarks || []).length > 0 && (
                   <div className="mt-4 pt-3 border-t border-slate-50 flex items-start gap-2">
                     <MessageSquare className="w-3.5 h-3.5 text-indigo-400 mt-0.5 shrink-0" />
                     <p className="text-[11px] text-slate-500 line-clamp-1 italic">
-                      <span className="font-bold not-italic">{task.remarks[task.remarks.length - 1].user_name}:</span> {task.remarks[task.remarks.length - 1].text}
+                      <span className="font-bold not-italic">{(task.remarks || [])[(task.remarks || []).length - 1].user_name}:</span> {(task.remarks || [])[(task.remarks || []).length - 1].text}
                     </p>
                   </div>
                 )}
@@ -452,9 +452,9 @@ export default function EmployeeTasksPage() {
                     </button>
                   </div>
                   {/* Existing remarks */}
-                  {task.remarks.length > 0 ? (
+                  {(task.remarks || []).length > 0 ? (
                     <div className="space-y-3 mb-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                      {task.remarks.map((r, i) => (
+                      {(task.remarks || []).map((r, i) => (
                         <div key={i} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-bold text-indigo-600">{r.user_name}</span>

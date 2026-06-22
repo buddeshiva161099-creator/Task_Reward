@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import api from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 import { timeAgo, formatPreciseDateTime, cn } from '@/lib/utils';
 import {
   ClipboardList, CheckCircle2, Clock, AlertTriangle, Play,
@@ -22,6 +23,7 @@ interface PerfMetrics {
 }
 
 export default function EmployeeDashboardPage() {
+  const { updateUser } = useAuth();
   const [data, setData] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [mounted, setMounted] = useState(false);
@@ -41,6 +43,9 @@ export default function EmployeeDashboardPage() {
       }
       const res = await api.get('/dashboard/employee', { params });
       setData(res.data);
+      if (res.data?.user?.reward_points !== undefined) {
+        updateUser({ reward_points: res.data.user.reward_points });
+      }
     } catch (err) {
       console.error('Failed to fetch dashboard:', err);
     } finally {
@@ -248,10 +253,10 @@ export default function EmployeeDashboardPage() {
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Tasks', value: data.tasks.total, icon: ClipboardList, color: 'from-purple-600 to-violet-500' },
-          { label: 'Completed', value: data.tasks.completed, icon: CheckCircle2, color: 'from-emerald-600 to-green-500' },
-          { label: 'Completed Late', value: data.tasks.completed_late, icon: Clock, color: 'from-indigo-600 to-blue-500' },
-          { label: 'Overdue', value: data.tasks.overdue, icon: AlertTriangle, color: 'from-red-600 to-rose-500' },
+          { label: 'Total Tasks', value: data.tasks?.total ?? 0, icon: ClipboardList, color: 'from-purple-600 to-violet-500' },
+          { label: 'Completed', value: data.tasks?.completed ?? 0, icon: CheckCircle2, color: 'from-emerald-600 to-green-500' },
+          { label: 'Completed Late', value: data.tasks?.completed_late ?? 0, icon: Clock, color: 'from-indigo-600 to-blue-500' },
+          { label: 'Overdue', value: data.tasks?.overdue ?? 0, icon: AlertTriangle, color: 'from-red-600 to-rose-500' },
         ].map((card) => {
           const Icon = card.icon;
           return (

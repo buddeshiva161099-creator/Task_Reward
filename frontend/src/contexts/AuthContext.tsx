@@ -27,6 +27,7 @@ interface AuthContextType {
   refreshCompanies: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  updateUser: (updates: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -171,6 +172,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     window.location.href = '/login';
   }, []);
 
+  const updateUser = useCallback((updates: Partial<User>) => {
+    setUser(prev => prev ? { ...prev, ...updates } : prev);
+  }, []);
+
   const role = user?.role;
 
   return (
@@ -198,6 +203,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshCompanies,
         login,
         logout,
+        updateUser,
       }}
     >
       {children}

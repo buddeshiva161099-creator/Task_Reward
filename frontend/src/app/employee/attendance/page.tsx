@@ -287,38 +287,8 @@ export default function AttendancePage() {
     loadCorrections();
     const handleUpdate = () => { fetchAttendance(); fetchCalendarSummary(); };
     window.addEventListener('attendanceUpdated', handleUpdate);
-
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          setLocation(loc);
-          checkGeofence(loc.lat, loc.lng);
-        },
-        (geoError) => {
-          console.error('Location error:', geoError.code, geoError.message);
-          switch (geoError.code) {
-            case geoError.PERMISSION_DENIED:
-              setError('Location permission denied. Please allow location access in your browser settings to use attendance.');
-              break;
-            case geoError.POSITION_UNAVAILABLE:
-              setError('Location unavailable. Please check your device GPS settings and try again.');
-              break;
-            case geoError.TIMEOUT:
-              setError('Location request timed out. Please check your internet connection and try again.');
-              break;
-            default:
-              setError('Unable to get your location. Please try again.');
-          }
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-      );
-    } else {
-      setError('Geolocation is not supported by your browser.');
-    }
-
     return () => window.removeEventListener('attendanceUpdated', handleUpdate);
-  }, [fetchAttendance, fetchCalendarSummary, checkGeofence]);
+  }, [fetchAttendance, fetchCalendarSummary]);
 
   useEffect(() => {
     if (!currentSession) { setSessionTimer(''); setCanCheckout(true); return; }
@@ -352,26 +322,54 @@ export default function AttendancePage() {
   };
 
   const handleAction = async (type: 'check-in' | 'check-out') => {
-    if (!location) { setError('Unable to get location. Please allow location access.'); return; }
-    try {
-      setActionLoading(true);
-      setError(null);
-      const res = await api.post(`/attendance/${type}`, {
-        lat: location.lat,
-        lng: location.lng,
-        remarks: type === 'check-in' ? 'Regular Check-in' : 'Regular Check-out',
-        device_fingerprint: generateFingerprint(),
-      });
-      if (type === 'check-in') setCurrentSession(res.data);
-      else setCurrentSession(null);
-      fetchAttendance();
-      fetchCalendarSummary();
-      window.dispatchEvent(new Event('attendanceUpdated'));
-    } catch (err: any) {
-      setError(err.response?.data?.detail || `Failed to ${type}.`);
-    } finally {
-      setActionLoading(false);
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser.');
+      return;
     }
+    setActionLoading(true);
+    setError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        setLocation(loc);
+        await checkGeofence(loc.lat, loc.lng);
+        try {
+          const res = await api.post(`/attendance/${type}`, {
+            lat: loc.lat,
+            lng: loc.lng,
+            remarks: type === 'check-in' ? 'Regular Check-in' : 'Regular Check-out',
+            device_fingerprint: generateFingerprint(),
+          });
+          if (type === 'check-in') setCurrentSession(res.data);
+          else setCurrentSession(null);
+          fetchAttendance();
+          fetchCalendarSummary();
+          window.dispatchEvent(new Event('attendanceUpdated'));
+        } catch (err: any) {
+          setError(err.response?.data?.detail || `Failed to ${type}.`);
+        } finally {
+          setActionLoading(false);
+        }
+      },
+      (geoError) => {
+        console.error('Location error:', geoError.code, geoError.message);
+        setActionLoading(false);
+        switch (geoError.code) {
+          case geoError.PERMISSION_DENIED:
+            setError('Location permission denied. Please allow location access in your browser settings to use attendance.');
+            break;
+          case geoError.POSITION_UNAVAILABLE:
+            setError('Location unavailable. Please check your device GPS settings and try again.');
+            break;
+          case geoError.TIMEOUT:
+            setError('Location request timed out. Please check your internet connection and try again.');
+            break;
+          default:
+            setError('Unable to get your location. Please try again.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
   };
 
   if (loading) {
@@ -824,7 +822,7 @@ function MonthCalendar({
       return logDate.getFullYear() === year && logDate.getMonth() === month && logDate.getDate() === d;
     });
 
-    type DayStatus = 'present' | 'regularized' | 'late' | 'absent' | 'holiday' | 'leave' | 'weekend' | 'none';
+    type DayStatus = 'present' | 'regularized' | 'late' | 'absent' | 'holiday' | 'leave' | 'weekend' | 'none' | 'no_data';
     let status: DayStatus = 'none';
     let symbol = '';
     let colorClass = '';
@@ -860,8 +858,8 @@ function MonthCalendar({
       tooltipText = `${LEAVE_COLORS[leaveType]?.label ?? 'Leave'}`;
       stats.leave++;
     } else if (isWorkDay && isPastOrToday) {
-      status = 'absent'; symbol = 'A'; colorClass = 'bg-rose-500 text-white';
-      stats.absent++;
+      status = 'no_data'; symbol = '-'; colorClass = 'bg-slate-200 text-slate-500';
+      tooltipText = 'No attendance data';
     } else if (!isWorkDay) {
       status = 'weekend'; colorClass = 'bg-slate-100 text-slate-400';
     }

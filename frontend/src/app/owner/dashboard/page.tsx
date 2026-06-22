@@ -70,51 +70,51 @@ export default function OwnerDashboardPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
         <OwnerMetricCard
           label="Total Tenants"
-          value={metrics.tenants.total}
+          value={metrics.tenants?.total ?? 0}
           icon={Building2}
           accent="indigo"
-          hint={`+${metrics.tenants.new_last_30_days} in last 30 days`}
+          hint={`+${metrics.tenants?.new_last_30_days ?? 0} in last 30 days`}
         />
         <OwnerMetricCard
           label="Active"
-          value={metrics.tenants.active}
+          value={metrics.tenants?.active ?? 0}
           icon={CheckCircle2}
           accent="emerald"
         />
         <OwnerMetricCard
           label="On Trial"
-          value={metrics.tenants.trial}
+          value={metrics.tenants?.trial ?? 0}
           icon={Clock}
           accent="amber"
         />
         <OwnerMetricCard
           label="Suspended"
-          value={metrics.tenants.suspended}
+          value={metrics.tenants?.suspended ?? 0}
           icon={AlertCircle}
           accent="rose"
         />
         <OwnerMetricCard
           label="Total Users"
-          value={metrics.users.total}
+          value={metrics.users?.total ?? 0}
           icon={Users}
           accent="slate"
-          hint={`${metrics.users.admins} admins · ${metrics.users.employees} employees`}
+          hint={`${metrics.users?.admins ?? 0} admins · ${metrics.users?.employees ?? 0} employees`}
         />
         <OwnerMetricCard
           label="Subscription Plans"
-          value={metrics.plans.total_plans}
+          value={metrics.plans?.total_plans ?? 0}
           icon={Crown}
           accent="amber"
         />
         <OwnerMetricCard
           label="Cancelled"
-          value={metrics.tenants.cancelled}
+          value={metrics.tenants?.cancelled ?? 0}
           icon={Activity}
           accent="slate"
         />
         <OwnerMetricCard
           label="Active Plans"
-          value={Object.keys(metrics.plans.by_code).length}
+          value={Object.keys(metrics.plans?.by_code || {}).length}
           icon={Building2}
           accent="indigo"
         />
@@ -171,7 +171,7 @@ export default function OwnerDashboardPage() {
               <p className="text-xs text-slate-500 mt-0.5">First 10 users created in the last 7 days</p>
             </div>
           </div>
-          {metrics.recent_signups.length === 0 ? (
+          {(!metrics.recent_signups || metrics.recent_signups.length === 0) ? (
             <div className="text-xs text-slate-500 text-center py-8">No recent signups.</div>
           ) : (
             <ul className="space-y-3">
@@ -179,7 +179,7 @@ export default function OwnerDashboardPage() {
                 <li key={u.id} className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100 last:border-0 last:pb-0">
                   <div className="flex items-center gap-3 min-w-0">
                     <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center text-xs font-bold shrink-0">
-                      {u.name.charAt(0).toUpperCase()}
+                      {(u.name || "").charAt(0).toUpperCase()}
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-900 truncate">{u.name}</p>
@@ -197,7 +197,7 @@ export default function OwnerDashboardPage() {
       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
         <h3 className="text-sm font-bold text-slate-900 mb-4">Plan Distribution</h3>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {Object.entries(metrics.plans.by_code).map(([code, count]) => (
+          {Object.entries(metrics.plans?.by_code || {}).map(([code, count]) => (
             <div key={code} className="flex items-center justify-between p-4 rounded-xl border border-slate-200">
               <div className="flex items-center gap-3">
                 <PlanCodeBadge code={code} />
@@ -205,7 +205,7 @@ export default function OwnerDashboardPage() {
               <div className="text-2xl font-extrabold text-slate-900">{count}</div>
             </div>
           ))}
-          {Object.keys(metrics.plans.by_code).length === 0 && (
+          {Object.keys(metrics.plans?.by_code || {}).length === 0 && (
             <div className="col-span-3 text-xs text-slate-500 text-center py-6">
               No tenants assigned to a plan yet.
             </div>

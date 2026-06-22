@@ -237,7 +237,7 @@ export default function AdminTasksPage() {
       if (activeTab === 'my') {
         if (task.assigned_to !== user?.id) return false;
       }
-      if (searchQuery && !task.work_description.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+      if (searchQuery && !(task.work_description || '').toLowerCase().includes(searchQuery.toLowerCase())) return false;
       if (statusFilter && task.status !== statusFilter) return false;
       if (priorityFilter && task.priority !== priorityFilter) return false;
       if (employeeFilter && task.assigned_to !== employeeFilter) return false;
@@ -635,14 +635,14 @@ export default function AdminTasksPage() {
                       <p className="text-sm text-slate-700 leading-relaxed line-clamp-2 group-hover:text-indigo-600">
                         {task.work_description}
                       </p>
-                      {task.work_description.length > 100 && (
+                      {(task.work_description || '').length > 100 && (
                         <span className="text-[10px] text-indigo-400 font-bold uppercase mt-1 block">Read More...</span>
                       )}
                     </div>
                   </td>
                   <td>
-                    <span className={`font-medium text-sm capitalize ${getPriorityColor(task.priority)}`}>
-                      {task.priority.charAt(0).toUpperCase() + task.priority.slice(1)}
+                    <span className={`font-medium text-sm capitalize ${getPriorityColor(task.priority || 'medium')}`}>
+                      {(task.priority || 'medium').charAt(0).toUpperCase() + (task.priority || 'medium').slice(1)}
                     </span>
                   </td>
                   <td className="text-sm text-muted-foreground whitespace-nowrap">{formatDateTime(task.deadline)}</td>
@@ -684,9 +684,9 @@ export default function AdminTasksPage() {
                         title="Remarks"
                       >
                         <MessageSquarePlus className="w-3.5 h-3.5 text-purple-400" />
-                        {task.remarks.length > 0 && (
+                        {(task.remarks || []).length > 0 && (
                           <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-purple-500 text-white text-[8px] flex items-center justify-center font-bold">
-                            {task.remarks.length}
+                            {(task.remarks || []).length}
                           </span>
                         )}
                       </button>
@@ -723,9 +723,9 @@ export default function AdminTasksPage() {
                           </button>
                         </div>
                         {/* Existing remarks */}
-                        {task.remarks.length > 0 ? (
+                        {(task.remarks || []).length > 0 ? (
                           <div className="space-y-3 mb-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                            {task.remarks.map((r, i) => (
+                            {(task.remarks || []).map((r, i) => (
                               <div key={i} className="bg-white rounded-xl p-4 border border-slate-200 shadow-sm">
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-xs font-bold text-indigo-600">{r.user_name}</span>
