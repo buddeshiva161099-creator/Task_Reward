@@ -49,6 +49,12 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     }
   }, [user, isLoading, canAccess, router]);
 
+  useEffect(() => {
+    if (user?.must_change_password) {
+      setShowChangePassword(true);
+    }
+  }, [user]);
+
   if (isLoading || !user) {
     return (
       <div className="flex h-screen bg-slate-50">
@@ -249,7 +255,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           {children}
         </div>
       </main>
-      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} force={!!user?.must_change_password} />}
       <AIAssistant />
     </div>
   );

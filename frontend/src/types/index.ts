@@ -12,6 +12,7 @@ export interface User {
   business_unit_id?: string | null;
   mobile?: string;
   alternate_mobile?: string;
+  must_change_password?: boolean;
 }
 
 export interface RemarkEntry {

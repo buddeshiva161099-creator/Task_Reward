@@ -14,13 +14,16 @@ import {
   ChevronRight,
   Menu,
   X as CloseIcon,
+  Key,
 } from 'lucide-react';
+import ChangePasswordModal from '@/components/ChangePasswordModal';
 
 export default function OwnerLayout({ children }: { children: React.ReactNode }) {
   const { owner, isLoading, logout } = useOwnerAuth();
   const router = useRouter();
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
 
   const isLogin = pathname === '/owner/login';
 
@@ -110,6 +113,13 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
             </div>
           </div>
           <button
+            onClick={() => setShowChangePassword(true)}
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors mb-1"
+          >
+            <Key className="w-3.5 h-3.5" />
+            Change Password
+          </button>
+          <button
             onClick={logout}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
           >
@@ -147,6 +157,7 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
         </header>
         <div className="p-6 lg:p-8">{children}</div>
       </main>
+      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} force={!!owner?.must_change_password} />}
     </div>
   );
 }

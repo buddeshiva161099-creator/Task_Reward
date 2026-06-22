@@ -59,8 +59,8 @@ async function setupAdminIntercepts(page: import('@playwright/test').Page) {
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(OWNER_DATA) });
     } else if (url.includes('/platform/auth/login') && route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
-      if (body?.email === 'owner@vision.app' && body?.password === 'Tharunkumar123@#!') {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ access_token: 'mock', token_type: 'bearer', owner: OWNER_DATA }) });
+      if (body?.email === 'owner@vision.app') {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ access_token: 'mock', token_type: 'bearer', user: ADMIN_USER }) });
       } else {
         await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'Invalid credentials' }) });
       }
@@ -101,7 +101,7 @@ async function setupOwnerIntercepts(page: import('@playwright/test').Page) {
     const url = route.request().url();
     if (url.includes('/platform/auth/login') && route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
-      if (body?.email === 'owner@vision.app' && body?.password === 'Tharunkumar123@#!') {
+      if (body?.email === 'owner@vision.app') {
         await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ access_token: 'mock', token_type: 'bearer', owner: OWNER_DATA }) });
       } else {
         await route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ detail: 'Invalid credentials' }) });
@@ -131,6 +131,8 @@ async function setupOwnerIntercepts(page: import('@playwright/test').Page) {
 
   await page.route('http://localhost:8000/**', ownerCatchAll);
   await page.route('http://127.0.0.1:8000/**', ownerCatchAll);
+  await page.route('http://127.0.0.1:3000/platform/**', ownerCatchAll);
+  await page.route('http://localhost:3000/platform/**', ownerCatchAll);
 }
 
 test.describe('Full Application E2E', () => {
@@ -322,8 +324,8 @@ test.describe('Full Application E2E', () => {
     await setupOwnerIntercepts(page);
     await page.goto('/owner/login', { waitUntil: 'domcontentloaded' });
     await page.locator('#owner-login-email').waitFor({ state: 'visible', timeout: 10_000 });
-    await page.locator('#owner-login-email').fill('owner@vision.app');
-    await page.locator('#owner-login-password').fill('Tharunkumar123@#!');
+    await page.locator('#owner-login-email').pressSequentially('owner@vision.app', { delay: 30 });
+    await page.locator('#owner-login-password').pressSequentially('StrongP@ss123', { delay: 30 });
     await page.waitForTimeout(500);
     await page.locator('#owner-login-submit').click();
     await expect(page).toHaveURL(/\/owner\/dashboard/, { timeout: 20_000 });

@@ -6,9 +6,10 @@ import { X, Lock, ShieldCheck, Loader2, CheckCircle2, AlertCircle } from 'lucide
 
 interface ChangePasswordModalProps {
   onClose: () => void;
+  force?: boolean;
 }
 
-export default function ChangePasswordModal({ onClose }: ChangePasswordModalProps) {
+export default function ChangePasswordModal({ onClose, force }: ChangePasswordModalProps) {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -25,8 +26,8 @@ export default function ChangePasswordModal({ onClose }: ChangePasswordModalProp
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters long');
+    if (newPassword.length < 10) {
+      setError('Password must be at least 10 characters long');
       return;
     }
 
@@ -38,7 +39,8 @@ export default function ChangePasswordModal({ onClose }: ChangePasswordModalProp
       });
       setSuccess(true);
       setTimeout(() => {
-        onClose();
+        localStorage.removeItem('user');
+        window.location.href = '/login';
       }, 2000);
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Failed to update password');
@@ -48,7 +50,7 @@ export default function ChangePasswordModal({ onClose }: ChangePasswordModalProp
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
+    <div className="modal-overlay" onClick={force ? undefined : onClose}>
       <div 
         className="modal-content max-w-md overflow-hidden relative" 
         onClick={(e) => e.stopPropagation()}
@@ -65,12 +67,14 @@ export default function ChangePasswordModal({ onClose }: ChangePasswordModalProp
               <p className="text-xs text-slate-400 font-medium">Update your account password</p>
             </div>
           </div>
-          <button 
-            onClick={onClose} 
-            className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          {!force && (
+            <button 
+              onClick={onClose} 
+              className="w-10 h-10 rounded-xl hover:bg-slate-100 flex items-center justify-center text-slate-400 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {success ? (
@@ -115,7 +119,7 @@ export default function ChangePasswordModal({ onClose }: ChangePasswordModalProp
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="input pl-10"
-                  placeholder="Min. 6 characters"
+                  placeholder="Min. 10 characters"
                   autoComplete="new-password"
                   required
                 />
@@ -139,9 +143,11 @@ export default function ChangePasswordModal({ onClose }: ChangePasswordModalProp
             </div>
 
             <div className="flex gap-3 pt-4">
-              <button type="button" onClick={onClose} className="btn btn-secondary flex-1">
-                Cancel
-              </button>
+              {!force && (
+                <button type="button" onClick={onClose} className="btn btn-secondary flex-1">
+                  Cancel
+                </button>
+              )}
               <button 
                 type="submit" 
                 disabled={loading} 
