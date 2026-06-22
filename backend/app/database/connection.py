@@ -190,13 +190,29 @@ DEFAULT_PLANS = [
 
 
 async def _seed_default_subscription_plans():
-    """Insert the default plans if none exist yet."""
+    """Insert or update the default plans idempotently by code."""
     try:
-        existing = await SubscriptionPlan.count()
-        if existing > 0:
-            return
         for plan in DEFAULT_PLANS:
-            await SubscriptionPlan(**plan).insert()
+            existing = await SubscriptionPlan.find_one(SubscriptionPlan.code == plan["code"])
+            if existing:
+                await existing.set(plan)
+            else:
+                await SubscriptionPlan(**plan).insert()
+
+        # Clean up duplicates (keep one per code, safest one)
+        for plan in DEFAULT_PLANS:
+            all_with_code = await SubscriptionPlan.find(SubscriptionPlan.code == plan["code"]).to_list()
+            if len(all_with_code) > 1:
+                keep = all_with_code[0]
+                for dup in all_with_code[1:]:
+                    # Check if any tenant references this duplicate
+                    tenants_using = await Tenant.find(Tenant.subscription_plan_id == dup.id).to_list()
+                    for t in tenants_using:
+                        t.subscription_plan_id = keep.id
+                        await t.save()
+                    await dup.delete()
+                print(f"  [Cleanup] Removed {len(all_with_code)-1} duplicate(s) of '{plan['code']}' plan")
+
         print(f"[OK] Seeded {len(DEFAULT_PLANS)} default subscription plans")
     except Exception as e:
         print(f"[WARNING] Failed to seed default subscription plans: {e}")
