@@ -29,6 +29,7 @@ from app.utils.rate_limiter import RateLimiter
 
 
 platform_login_limiter = RateLimiter(times=5, seconds=60)
+platform_tenant_create_limiter = RateLimiter(times=10, seconds=60)
 
 router = APIRouter(prefix="/platform", tags=["Platform Owner"])
 
@@ -450,7 +451,7 @@ async def reset_tenant_admin_password(
     }
 
 
-@router.post("/tenants", status_code=status.HTTP_201_CREATED)
+@router.post("/tenants", status_code=status.HTTP_201_CREATED, dependencies=[Depends(platform_tenant_create_limiter)])
 async def onboard_tenant(
     request: Request,
     response: Response,

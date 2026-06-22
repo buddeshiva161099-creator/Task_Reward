@@ -8,6 +8,7 @@ Company or BusinessUnit is created here; the admin lands on the
 Once they do, a default HQ BusinessUnit is auto-created inside that
 Company by the company service.
 """
+import re
 import secrets
 import string
 from datetime import datetime, timedelta, timezone
@@ -45,9 +46,12 @@ class OnboardingService:
         office_lat: Optional[float] = None,
         office_lng: Optional[float] = None,
     ) -> dict:
-        existing_tenant = await Tenant.find_one(Tenant.name == tenant_name)
+        normalized_name = tenant_name.strip()
+        existing_tenant = await Tenant.find_one({
+            "name": {"$regex": f"^{re.escape(normalized_name)}$", "$options": "i"}
+        })
         if existing_tenant:
-            raise ValueError(f"Tenant '{tenant_name}' already exists")
+            raise ValueError(f"Tenant '{normalized_name}' already exists")
 
         existing_user = await User.find_one(User.email == admin_email)
         if existing_user:
@@ -67,7 +71,7 @@ class OnboardingService:
         trial_ends_at = now + timedelta(days=effective_trial_days)
 
         tenant = Tenant(
-            name=tenant_name,
+            name=normalized_name,
             work_days=work_days or ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
             work_start_time=work_start_time,
             work_end_time=work_end_time,
@@ -101,9 +105,12 @@ class OnboardingService:
             await LeaveBalance(
                 user_id=admin.id,
                 tenant_id=tenant.id,
-                sick_leave=0,
-                earned_leave=0,
-                casual_leave=0,
+                sick_allocated=0,
+                sick_used=0,
+                earned_allocated=0,
+                earned_used=0,
+                casual_allocated=0,
+                casual_used=0,
             ).insert()
         except Exception:
             pass
