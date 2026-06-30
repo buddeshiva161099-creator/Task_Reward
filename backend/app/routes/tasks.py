@@ -103,7 +103,7 @@ async def create_task(
     elif request.tenant_id:
         target_tenants = [PydanticObjectId(request.tenant_id)]
     else:
-        target_tenants = [None]
+        target_tenants = [current_user.tenant_id] if current_user.tenant_id else [None]
 
     # 3. Create initial task instances first
     last_task = None
@@ -167,7 +167,7 @@ async def create_task(
             recurrence_type=RecurrenceType(request.recurrence.type),
             interval=request.recurrence.interval,
             weekdays=request.recurrence.weekdays,
-            month_days=[request.recurrence.month_day] if request.recurrence.month_day else None,
+            month_days=[request.deadline.day] if (request.recurrence.type == "monthly" and request.deadline) else ([request.recurrence.month_day] if request.recurrence.month_day else None),
             start_date=datetime.now(timezone.utc),
             end_type=db_end_type,
             end_date=parsed_end_date,
@@ -519,3 +519,148 @@ async def delete_task(
     )
 
     return {"message": "Task deleted successfully"}
+
+
+@router.get("/recurring-rules")
+async def list_recurring_rules(
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.recurring_task import RecurrenceRule
+    
+    tenant_cid = require_tenant_id(current_user)
+    
+    if current_user.role == UserRole.ADMIN:
+        rules = await RecurrenceRule.find(RecurrenceRule.status != "terminated").to_list()
+    else:
+        tenant_users = await User.find(User.tenant_id == tenant_cid).to_list()
+        tenant_user_ids = [u.id for u in tenant_users]
+        
+        rules = await RecurrenceRule.find(
+            RecurrenceRule.status != "terminated",
+            Or(
+                In(RecurrenceRule.created_by, tenant_user_ids),
+                In(tenant_cid, RecurrenceRule.company_ids)
+            )
+        ).to_list()
+        
+        if current_user.role == UserRole.EMPLOYEE:
+            rules = [
+                r for r in rules 
+                if r.created_by == current_user.id or current_user.id in r.assigned_to_list
+            ]
+            
+    result = []
+    for r in rules:
+        assignee_names = []
+        for uid in r.assigned_to_list:
+            user = await User.get(uid)
+            if user:
+                assignee_names.append(user.name)
+                
+        result.append({
+            "id": str(r.id),
+            "name": r.name,
+            "work_description": r.work_description,
+            "priority": r.priority.value if hasattr(r.priority, "value") else str(r.priority),
+            "recurrence_type": r.recurrence_type.value if hasattr(r.recurrence_type, "value") else str(r.recurrence_type),
+            "interval": r.interval,
+            "weekdays": r.weekdays,
+            "month_days": r.month_days,
+            "start_date": r.start_date.isoformat() if r.start_date else None,
+            "end_type": r.end_type.value if hasattr(r.end_type, "value") else str(r.end_type),
+            "end_date": r.end_date.isoformat() if r.end_date else None,
+            "occurrences": r.occurrences,
+            "occurrence_count": r.occurrence_count,
+            "is_active": r.is_active,
+            "status": r.status,
+            "paused_until_date": r.paused_until_date.isoformat() if r.paused_until_date else None,
+            "next_run": r.next_run.isoformat() if r.next_run else None,
+            "assignee_names": assignee_names,
+        })
+    return result
+
+
+@router.post("/recurring-rules/{rule_id}/pause")
+async def pause_recurring_rule(
+    rule_id: str,
+    days: Optional[int] = Query(None),
+    weeks: Optional[int] = Query(None),
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.recurring_task import RecurrenceRule
+    from datetime import datetime, timezone, timedelta
+    
+    rule = await RecurrenceRule.get(PydanticObjectId(rule_id))
+    if not rule:
+        raise HTTPException(status_code=404, detail="Recurring rule not found")
+        
+    if current_user.role != UserRole.ADMIN and rule.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this rule")
+        
+    rule.status = "paused"
+    if days:
+        rule.paused_until_date = datetime.now(timezone.utc) + timedelta(days=days)
+    elif weeks:
+        rule.paused_until_date = datetime.now(timezone.utc) + timedelta(weeks=weeks)
+    else:
+        rule.paused_until_date = None
+        
+    await rule.save()
+    return {
+        "message": "Rule paused successfully",
+        "status": rule.status,
+        "paused_until_date": rule.paused_until_date.isoformat() if rule.paused_until_date else None
+    }
+
+
+@router.post("/recurring-rules/{rule_id}/resume")
+async def resume_recurring_rule(
+    rule_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.recurring_task import RecurrenceRule
+    from datetime import datetime, timezone
+    
+    rule = await RecurrenceRule.get(PydanticObjectId(rule_id))
+    if not rule:
+        raise HTTPException(status_code=404, detail="Recurring rule not found")
+        
+    if current_user.role != UserRole.ADMIN and rule.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this rule")
+        
+    rule.status = "active"
+    rule.is_active = True
+    rule.paused_until_date = None
+    
+    now = datetime.now(timezone.utc)
+    from app.services.recurrence_service import calculate_next_run
+    while rule.next_run and rule.next_run <= now:
+        rule.next_run = calculate_next_run(rule)
+        
+    await rule.save()
+    return {
+        "message": "Rule resumed successfully",
+        "status": rule.status,
+        "next_run": rule.next_run.isoformat() if rule.next_run else None
+    }
+
+
+@router.delete("/recurring-rules/{rule_id}")
+async def delete_recurring_rule(
+    rule_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    from app.models.recurring_task import RecurrenceRule
+    
+    rule = await RecurrenceRule.get(PydanticObjectId(rule_id))
+    if not rule:
+        raise HTTPException(status_code=404, detail="Recurring rule not found")
+        
+    if current_user.role != UserRole.ADMIN and rule.created_by != current_user.id:
+        raise HTTPException(status_code=403, detail="You do not have permission to modify this rule")
+        
+    rule.status = "terminated"
+    rule.is_active = False
+    await rule.save()
+    await rule.delete()
+    return {"message": "Recurring rule terminated successfully"}

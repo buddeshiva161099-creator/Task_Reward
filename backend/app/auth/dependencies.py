@@ -21,10 +21,11 @@ async def get_current_user(
         token = auth_header.split(" ", 1)[1].strip()
     
     if not token:
-        token = request.cookies.get("access_token")
-        
-    if not token:
-        token = request.cookies.get("owner_access_token")
+        if request.url.path.startswith("/platform"):
+            token = request.cookies.get("owner_access_token") or request.cookies.get("access_token")
+        else:
+            token = request.cookies.get("access_token") or request.cookies.get("owner_access_token")
+
 
     if not token:
         raise HTTPException(

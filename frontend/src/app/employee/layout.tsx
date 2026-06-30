@@ -5,13 +5,14 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import {
-  LayoutDashboard, ClipboardList, LogOut, Zap, ChevronRight, Trophy, MapPin, Menu, BarChart, Calendar, Clock, DollarSign, MessageSquare
+  LayoutDashboard, ClipboardList, LogOut, Zap, ChevronRight, Trophy, MapPin, Menu, BarChart, Calendar, Clock, DollarSign, MessageSquare, Megaphone
 } from 'lucide-react';
 import { useState } from 'react';
 import GlobalSearch from '@/components/GlobalSearch';
 import NotificationBell from '@/components/NotificationBell';
 import AttendanceToggle from '@/components/AttendanceToggle';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
+import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { Key } from 'lucide-react';
 import AIAssistant from '@/components/AIAssistant';
 import { Skeleton } from '@/components/Skeleton';
@@ -34,6 +35,7 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
     { href: '/employee/payroll', label: 'My Payslips', icon: DollarSign, visible: true },
     { href: '/employee/reports', label: 'Reports', icon: BarChart, visible: true },
     { href: '/employee/chat', label: 'Chat Collaboration', icon: MessageSquare, visible: true },
+    { href: '/employee/announcements', label: 'Announcements', icon: Megaphone, visible: true },
     { href: '/admin/dashboard', label: 'Management Panel', icon: Zap, visible: isManagementRole },
   ].filter(item => item.visible);
 
@@ -143,7 +145,7 @@ export default function EmployeeLayout({ children }: { children: React.ReactNode
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-64 min-h-screen">
+      <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
         {/* Top Header */}
         <header className="h-16 border-b border-border bg-white/50 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 flex items-center justify-between">
           <div className="flex items-center gap-4 flex-1">

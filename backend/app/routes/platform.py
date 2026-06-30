@@ -5,11 +5,11 @@ These routes are accessible only to authenticated users whose role is
 PLATFORM_OWNER. Tenant users receive 403 here. The middleware in
 app.middleware.PlatformAuthMiddleware also enforces this.
 """
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import re
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, status, Depends, Request, Query, Response
+from fastapi import APIRouter, HTTPException, status, Depends, Request, Query, Response, UploadFile, File
 from pydantic import BaseModel, Field, EmailStr
 from beanie import PydanticObjectId
 from app.config import settings
@@ -695,8 +695,12 @@ async def create_plan(
 # ---------- Metrics & Audit ----------
 
 @router.get("/metrics")
-async def get_metrics(owner: User = Depends(require_platform_owner)):
-    return await PlatformMetricsService.summary()
+async def get_metrics(
+    tenant_id: Optional[str] = Query(default=None),
+    owner: User = Depends(require_platform_owner),
+):
+    tenant_obj_id = PydanticObjectId(tenant_id) if tenant_id else None
+    return await PlatformMetricsService.summary(tenant_id=tenant_obj_id)
 
 
 @router.get("/audit-log")
@@ -728,9 +732,562 @@ async def get_audit_log(
 
 @router.get("/system-health")
 async def system_health(owner: User = Depends(require_platform_owner)):
+    import platform
+    import os
+    import sys
+    import shutil
+    
+    mongo_status = "up"
+    mongo_version = "unknown"
+    try:
+        db = User.get_pymongo_collection().database
+        build_info = await db.command("buildInfo")
+        mongo_version = build_info.get("version", "unknown")
+    except Exception:
+        mongo_status = "down"
+
+    sys_diagnostics = {
+        "os": platform.system(),
+        "os_release": platform.release(),
+        "architecture": platform.machine(),
+        "python_version": platform.python_version(),
+        "process_id": os.getpid()
+    }
+
+    total_gb = 0.0
+    used_gb = 0.0
+    free_gb = 0.0
+    percent_used = 0.0
+    try:
+        total, used, free = shutil.disk_usage(".")
+        total_gb = round(total / (1024**3), 2)
+        used_gb = round(used / (1024**3), 2)
+        free_gb = round(free / (1024**3), 2)
+        percent_used = round((used / total) * 100, 1)
+    except Exception:
+        pass
+
+    disk_info = {
+        "total_gb": total_gb,
+        "used_gb": used_gb,
+        "free_gb": free_gb,
+        "percent_used": percent_used
+    }
+
+    entries = await PlatformAuditLog.find().sort("-timestamp").limit(100).to_list()
+    logs = []
+    for e in entries:
+        timestamp_str = e.timestamp.strftime("%Y-%m-%d %H:%M:%S") if e.timestamp else "—"
+        actor_str = e.actor_email if e.actor_email else "SYSTEM"
+        
+        log_level = "INFO"
+        if any(kw in e.action for kw in ["security", "reset", "impersonation", "suspend", "delete"]):
+            log_level = "WARN"
+            
+        syslog_line = f"[{timestamp_str}] [{log_level}] [{actor_str}] Action: {e.action} - {e.description} [IP: {e.ip_address or 'unknown'}]"
+        logs.append({
+            "line": syslog_line,
+            "level": log_level,
+            "action": e.action,
+            "timestamp": e.timestamp.isoformat() if e.timestamp else None
+        })
+
     return {
         "status": "healthy",
-        "mongo": "up",
+        "mongo": mongo_status,
+        "mongo_version": mongo_version,
         "owner_count": await User.find(User.role == UserRole.PLATFORM_OWNER).count(),
+        "diagnostics": sys_diagnostics,
+        "disk": disk_info,
+        "syslog": logs,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# ---------- Tenant Explorer ----------
+
+class TenantExplorerResponse(BaseModel):
+    tenant: dict
+    subscription_plan: Optional[dict] = None
+    companies: List[dict]
+    business_units: List[dict]
+    employees: List[dict]
+    stats: dict
+    drift: dict
+    billing_simulator: dict
+    engagement_trend: List[dict]
+
+
+@router.get("/tenants/{id}/explorer", response_model=TenantExplorerResponse)
+async def get_tenant_explorer(
+    id: str,
+    owner: User = Depends(require_platform_owner)
+):
+    from app.models.company import Company
+    from app.models.business_unit import BusinessUnit
+    from app.models.task import Task
+    from app.models.attendance import Attendance
+    from app.models.payroll import Payroll
+    import os
+
+    tenant_obj_id = PydanticObjectId(id)
+    tenant = await Tenant.get(tenant_obj_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    plan = await SubscriptionPlan.get(tenant.subscription_plan_id) if tenant.subscription_plan_id else None
+
+    # Load companies, BUs, and employees
+    companies = await Company.find(Company.tenant_id == tenant_obj_id).to_list()
+    business_units = await BusinessUnit.find(BusinessUnit.tenant_id == tenant_obj_id).to_list()
+    employees = await User.find(User.tenant_id == tenant_obj_id, User.is_platform_owner == False).to_list()
+
+    active_employees = sum(1 for u in employees if u.is_active and not u.is_deleted)
+    
+    # Calculate storage size on disk
+    storage_bytes = 0
+    for file_type in ["identity_docs", "chat"]:
+        tenant_dir = os.path.normpath(os.path.join("uploads", file_type, f"tenant_{id}"))
+        if os.path.exists(tenant_dir):
+            for dirpath, _, filenames in os.walk(tenant_dir):
+                for f in filenames:
+                    fp = os.path.join(dirpath, f)
+                    try:
+                        if os.path.exists(fp):
+                            storage_bytes += os.path.getsize(fp)
+                    except Exception:
+                        pass
+    storage_mb = round(storage_bytes / (1024 * 1024), 3)
+
+    tasks_count = await Task.find(Task.tenant_id == tenant_obj_id).count()
+    attendance_count = await Attendance.find(Attendance.tenant_id == tenant_obj_id).count()
+
+    # Policy Drift detection (vs default template rules)
+    default_attendance_points = {
+        "present": 1.0,
+        "late_under_30": 0.75,
+        "late_over_30": 0.5,
+        "excused": 0.0,
+        "unexcused": -1.0,
+        "overtime": 1.25
+    }
+    
+    drifted_points = {}
+    current_points = tenant.attendance_points or {}
+    for k, v in default_attendance_points.items():
+        curr_val = current_points.get(k)
+        if curr_val is not None and abs(curr_val - v) > 1e-3:
+            drifted_points[k] = {"default": v, "current": curr_val}
+
+    drift_detected = len(drifted_points) > 0
+
+    # Billing Simulation
+    price_base = plan.price_monthly if plan else 0.0
+    surcharge_per_emp = 150.0
+    excess_employees = max(0, active_employees - 10)
+    surcharge_total = excess_employees * surcharge_per_emp
+    billing_total = price_base + surcharge_total
+    
+    # 30-day Engagement Trend
+    trend_data = []
+    now = datetime.now(timezone.utc)
+    for i in range(29, -1, -1):
+        day = now - timedelta(days=i)
+        start_of_day = datetime(day.year, day.month, day.day, 0, 0, 0, tzinfo=timezone.utc)
+        end_of_day = datetime(day.year, day.month, day.day, 23, 59, 59, tzinfo=timezone.utc)
+        
+        day_checkins = await Attendance.find(
+            Attendance.tenant_id == tenant_obj_id,
+            Attendance.check_in >= start_of_day,
+            Attendance.check_in <= end_of_day
+        ).count()
+        
+        trend_data.append({
+            "date": start_of_day.strftime("%Y-%m-%d"),
+            "count": day_checkins
+        })
+
+    return {
+        "tenant": {
+            "id": str(tenant.id),
+            "name": tenant.name,
+            "description": tenant.description,
+            "tenant_status": tenant.tenant_status,
+            "is_active": tenant.is_active,
+            "created_at": tenant.created_at.isoformat() if tenant.created_at else None,
+            "work_days": tenant.work_days,
+            "work_start_time": tenant.work_start_time,
+            "work_end_time": tenant.work_end_time,
+            "office_lat": tenant.office_lat,
+            "office_lng": tenant.office_lng,
+            "geofence_radius_meters": tenant.geofence_radius_meters,
+            "geofence_policy": tenant.geofence_policy,
+            "attendance_points": tenant.attendance_points
+        },
+        "subscription_plan": {
+            "name": plan.name,
+            "code": plan.code,
+            "price_monthly": plan.price_monthly,
+            "max_employees": tenant.max_employees
+        } if plan else None,
+        "companies": [
+            {"id": str(c.id), "name": c.name, "is_active": c.is_active}
+            for c in companies
+        ],
+        "business_units": [
+            {"id": str(b.id), "name": b.name, "company_id": str(b.company_id) if b.company_id else None}
+            for b in business_units
+        ],
+        "employees": [
+            {
+                "id": str(e.id),
+                "name": e.name,
+                "email": e.email,
+                "role": e.role.value,
+                "primary_company_id": str(e.primary_company_id) if e.primary_company_id else None,
+                "business_unit_id": str(e.business_unit_id) if e.business_unit_id else None,
+                "is_active": e.is_active,
+                "must_change_password": e.must_change_password,
+                "reward_points": e.reward_points
+            }
+            for e in employees
+        ],
+        "stats": {
+            "active_employees": active_employees,
+            "max_employees": tenant.max_employees,
+            "storage_mb": storage_mb,
+            "tasks_count": tasks_count,
+            "attendance_count": attendance_count
+        },
+        "drift": {
+            "drift_detected": drift_detected,
+            "drifted_points": drifted_points
+        },
+        "billing_simulator": {
+            "base_rate": price_base,
+            "employee_surcharge": surcharge_total,
+            "total_invoice": billing_total,
+            "next_billing_date": (datetime.now(timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
+        },
+        "engagement_trend": trend_data
+    }
+
+
+@router.post("/tenants/{id}/impersonate/{user_id}")
+async def impersonate_tenant_user(
+    id: str,
+    user_id: str,
+    request: Request,
+    response: Response,
+    owner: User = Depends(require_platform_owner)
+):
+    tenant_obj_id = PydanticObjectId(id)
+    user_obj_id = PydanticObjectId(user_id)
+    
+    user = await User.get(user_obj_id)
+    if not user or user.tenant_id != tenant_obj_id:
+        raise HTTPException(status_code=404, detail="User not found in target tenant")
+        
+    # Log impersonation action in platform audit logs
+    await PlatformAuditService.log(
+        actor=owner,
+        action="owner.impersonation",
+        entity_type="user",
+        entity_id=user.id,
+        tenant_id=tenant_obj_id,
+        description=f"Platform Owner impersonated user {user.email} (Role: {user.role.value})",
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent"),
+    )
+    
+    from app.auth.jwt_handler import create_access_token
+    token = create_access_token({
+        "sub": str(user.id),
+        "role": user.role.value,
+        "token_version": getattr(user, "token_version", 0)
+    })
+    
+    # Set the cookie for the impersonated user
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=settings.ENVIRONMENT == "production",
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+    )
+    
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "name": user.name,
+            "role": user.role.value
+        }
+    }
+
+
+@router.post("/tenants/{id}/purge")
+async def purge_tenant_stale_data(
+    id: str,
+    owner: User = Depends(require_platform_owner),
+):
+    from app.models.task import Task
+    from app.models.notification import Notification
+
+    tenant_obj_id = PydanticObjectId(id)
+    tenant = await Tenant.get(tenant_obj_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Purge completed tasks older than 1 year
+    one_year_ago = datetime.now(timezone.utc) - timedelta(days=365)
+    deleted_tasks = await Task.find(
+        Task.tenant_id == tenant_obj_id,
+        Task.status == "completed",
+        Task.completed_at < one_year_ago,
+    ).delete()
+
+    # Purge notification logs older than 90 days
+    ninety_days_ago = datetime.now(timezone.utc) - timedelta(days=90)
+    deleted_notifications = await Notification.find(
+        Notification.created_at < ninety_days_ago,
+    ).delete()
+
+    return {
+        "status": "success",
+        "message": "Successfully purged stale records.",
+        "purged_tasks": deleted_tasks.deleted_count if deleted_tasks else 0,
+        "purged_notifications": deleted_notifications.deleted_count if deleted_notifications else 0,
+    }
+
+
+class UpdateTenantConfigPayload(BaseModel):
+    work_start_time: Optional[str] = None
+    work_end_time: Optional[str] = None
+    geofence_policy: Optional[str] = None
+    office_lat: Optional[float] = None
+    office_lng: Optional[float] = None
+    geofence_radius_meters: Optional[int] = None
+    attendance_points: Optional[dict] = None
+
+
+class AnnouncementPayload(BaseModel):
+    message: str
+    banner_type: str = "info"
+    image_url: Optional[str] = None
+
+
+@router.post("/announcement")
+async def create_announcement(
+    payload: AnnouncementPayload,
+    owner: User = Depends(require_platform_owner),
+):
+    from app.models.notification import Notification
+    
+    special_id = PydanticObjectId("000000000000000000000000")
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Message cannot be blank.")
+        
+    announcement = Notification(
+        user_id=special_id,
+        title=payload.banner_type.strip(),
+        message=message,
+        type="broadcast",
+        image_url=payload.image_url.strip() if payload.image_url else None
+    )
+    await announcement.insert()
+    return {"status": "success", "message": "Announcement broadcasted successfully."}
+
+
+@router.delete("/announcement/{id}")
+async def delete_announcement(
+    id: str,
+    owner: User = Depends(require_platform_owner),
+):
+    from app.models.notification import Notification
+    
+    special_id = PydanticObjectId("000000000000000000000000")
+    announcement = await Notification.find_one(
+        Notification.id == PydanticObjectId(id),
+        Notification.user_id == special_id,
+        Notification.type == "broadcast"
+    )
+    if not announcement:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+        
+    await announcement.delete()
+    return {"status": "success", "message": "Announcement deleted successfully."}
+
+
+@router.post("/announcement/upload")
+async def upload_announcement_file(
+    file: UploadFile = File(...),
+    owner: User = Depends(require_platform_owner),
+):
+    from app.utils.uploads import build_stored_filename
+    from pathlib import Path
+    
+    max_bytes = 5 * 1024 * 1024
+    upload_dir = Path("uploads/announcements/global").resolve()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    stored_filename = build_stored_filename(file.filename)
+    destination = (upload_dir / stored_filename).resolve()
+    
+    if upload_dir not in destination.parents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path destination.")
+        
+    bytes_written = 0
+    with destination.open("wb") as buffer:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            bytes_written += len(chunk)
+            if bytes_written > max_bytes:
+                buffer.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="File exceeds the 5MB upload limit."
+                )
+            buffer.write(chunk)
+            
+    file_url = f"/uploads/announcements/global/{stored_filename}"
+    return {
+        "status": "success",
+        "file_url": file_url
+    }
+
+
+@router.post("/tenants/{id}/users/{user_id}/reset-password")
+async def reset_tenant_user_password(
+    id: str,
+    user_id: str,
+    owner: User = Depends(require_platform_owner),
+):
+    import secrets
+    import string
+    
+    tenant_obj_id = PydanticObjectId(id)
+    user_obj_id = PydanticObjectId(user_id)
+    
+    user = await User.get(user_obj_id)
+    if not user or user.tenant_id != tenant_obj_id:
+        raise HTTPException(status_code=404, detail="User not found in target tenant")
+        
+    alphabet = string.ascii_letters + string.digits + "!@#$%"
+    temp_pass = "".join(secrets.choice(alphabet) for _ in range(12))
+    
+    user.password_hash = hash_password(temp_pass)
+    user.must_change_password = True
+    user.failed_login_attempts = 0
+    user.lockout_until = None
+    await user.save()
+    
+    await PlatformAuditService.log(
+        actor=owner,
+        action="owner.password_reset",
+        entity_type="user",
+        entity_id=user.id,
+        tenant_id=tenant_obj_id,
+        description=f"Platform Owner reset password of tenant user {user.email}",
+        ip_address=None,
+    )
+    
+    return {
+        "status": "success",
+        "temp_password": temp_pass,
+    }
+
+
+@router.patch("/tenants/{id}/config")
+async def update_tenant_configuration(
+    id: str,
+    payload: UpdateTenantConfigPayload,
+    owner: User = Depends(require_platform_owner),
+):
+    tenant_obj_id = PydanticObjectId(id)
+    tenant = await Tenant.get(tenant_obj_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if payload.work_start_time is not None:
+        tenant.work_start_time = payload.work_start_time
+    if payload.work_end_time is not None:
+        tenant.work_end_time = payload.work_end_time
+    if payload.geofence_policy is not None:
+        tenant.geofence_policy = payload.geofence_policy
+    if payload.office_lat is not None:
+        tenant.office_lat = payload.office_lat
+    if payload.office_lng is not None:
+        tenant.office_lng = payload.office_lng
+    if payload.geofence_radius_meters is not None:
+        tenant.geofence_radius_meters = payload.geofence_radius_meters
+    if payload.attendance_points is not None:
+        tenant.attendance_points = payload.attendance_points
+
+    await tenant.save()
+
+    await PlatformAuditService.log(
+        actor=owner,
+        action="owner.config_override",
+        entity_type="tenant",
+        entity_id=tenant.id,
+        tenant_id=tenant.id,
+        description=f"Platform Owner overrode operational configuration rules for tenant {tenant.name}",
+        ip_address=None,
+    )
+
+    return {
+        "status": "success",
+        "message": "Operational configurations saved successfully.",
+        "tenant_id": str(tenant.id),
+    }
+
+
+@router.get("/tenant-announcements")
+async def get_tenant_announcements(
+    tenant_id: str,
+    owner: User = Depends(require_platform_owner),
+):
+    from app.models.notification import Notification
+    
+    tenant_obj_id = PydanticObjectId(tenant_id)
+    announcements = await Notification.find(
+        Notification.tenant_id == tenant_obj_id,
+        Notification.type == "broadcast"
+    ).sort("created_at").to_list()
+    
+    return [
+        {
+            "id": str(a.id),
+            "message": a.message,
+            "banner_type": a.title,
+            "image_url": a.image_url,
+            "created_at": a.created_at.isoformat() if a.created_at else None
+        }
+        for a in announcements
+    ]
+
+
+@router.delete("/tenant-announcements/{id}")
+async def delete_tenant_announcement(
+    id: str,
+    owner: User = Depends(require_platform_owner),
+):
+    from app.models.notification import Notification
+    
+    announcement = await Notification.find_one(
+        Notification.id == PydanticObjectId(id),
+        Notification.type == "broadcast"
+    )
+    if not announcement:
+        raise HTTPException(status_code=404, detail="Announcement not found")
+        
+    await announcement.delete()
+    return {"status": "success", "message": "Tenant announcement deleted successfully."}
+

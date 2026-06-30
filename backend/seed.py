@@ -4,10 +4,12 @@ Run: python seed.py
 """
 import asyncio
 from pymongo import AsyncMongoClient
-from beanie import init_beanie
 from app.config import settings
 from app.models.user import User, UserRole
+from app.models.tenant import Tenant
+from app.models.company import Company
 from app.auth.password import hash_password
+from app.database.connection import init_db
 
 
 async def seed_admin():
@@ -18,12 +20,11 @@ async def seed_admin():
     await client.drop_database(settings.DATABASE_NAME)
     print("Database dropped successfully!")
     
-    from app.models.company import Company
-    database = client[settings.DATABASE_NAME]
-    await init_beanie(database=database, document_models=[User, Company])
+    # Initialize database connection and all Beanie models
+    await init_db()
 
-    # Create a default company
-    company = Company(
+    # Create a default tenant (contains work rules and policies)
+    tenant = Tenant(
         name="VISION TECH",
         description="Innovation in focus",
         work_days=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
@@ -32,13 +33,23 @@ async def seed_admin():
         office_lat=28.6139,
         office_lng=77.2090
     )
+    await tenant.insert()
+    print(f"[OK] Default tenant 'VISION TECH' created.")
+
+    # Create a default company under the tenant
+    company = Company(
+        name="VISION TECH HEADQUARTERS",
+        description="Headquarters division",
+        tenant_id=tenant.id,
+        is_default=True
+    )
     await company.insert()
-    print(f"[OK] Default company 'VISION TECH' created.")
+    print(f"[OK] Default company 'VISION TECH HEADQUARTERS' created.")
 
     admin_data = {
         "name": "System Admin",
         "email": "admin@company.com",
-        "password": "VisionAdminSecured2026!#",
+        "password": "Admin@123",
         "role": UserRole.ADMIN
     }
 
@@ -47,7 +58,9 @@ async def seed_admin():
         email=admin_data["email"],
         password_hash=hash_password(admin_data["password"]),
         role=admin_data["role"],
-        company_id=company.id
+        tenant_id=tenant.id,
+        primary_company_id=company.id,
+        is_active=True
     )
     await user.insert()
     print(f"[OK] System Admin created successfully!")

@@ -9,7 +9,7 @@ import { formatDateTime, getStatusColor, getStatusLabel, getPriorityColor, timeA
 import {
   ClipboardList, Plus, Filter, X, CheckCircle2, Play, Trash2, Award,
   MessageSquarePlus, Building2, Send, ChevronUp, Search, Pencil, Eye,
-  RefreshCcw, CalendarDays, Users2, Building, ChevronDown, Check, Tag
+  RefreshCcw, CalendarDays, Users2, Building, ChevronDown, Check, Tag, Clock
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/SkeletonLoaders';
 
@@ -125,12 +125,63 @@ function MultiSelectDropdown({ label, icon: Icon, options, selectedIds, onChange
 
 export default function AdminTasksPage() {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'team' | 'my'>('team');
+  const [activeTab, setActiveTab] = useState<'team' | 'my' | 'recurring'>('team');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [companies, setCompanies] = useState<Company[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [recurringRules, setRecurringRules] = useState<any[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+
+  const fetchRecurringRules = useCallback(async () => {
+    setRulesLoading(true);
+    try {
+      const res = await api.get('/tasks/recurring-rules');
+      setRecurringRules(res.data);
+    } catch (err) {
+      console.error('Failed to fetch recurring rules:', err);
+    } finally {
+      setRulesLoading(false);
+    }
+  }, []);
+
+  const handleTogglePause = async (ruleId: string, currentStatus: string) => {
+    try {
+      if (currentStatus === 'paused') {
+        await api.post(`/tasks/recurring-rules/${ruleId}/resume`);
+      } else {
+        await api.post(`/tasks/recurring-rules/${ruleId}/pause`);
+      }
+      fetchRecurringRules();
+    } catch (err) {
+      console.error('Failed to toggle pause on rule:', err);
+    }
+  };
+
+  const handlePauseTemporarily = async (ruleId: string, duration: '3days' | '1week' | '2weeks') => {
+    try {
+      const params: any = {};
+      if (duration === '3days') params.days = 3;
+      if (duration === '1week') params.weeks = 1;
+      if (duration === '2weeks') params.weeks = 2;
+      await api.post(`/tasks/recurring-rules/${ruleId}/pause`, null, { params });
+      fetchRecurringRules();
+    } catch (err) {
+      console.error('Failed to pause rule temporarily:', err);
+    }
+  };
+
+  const handleTerminateRule = async (ruleId: string) => {
+    if (!confirm('Are you sure you want to terminate this recurring task chain? This will stop future task generations.')) return;
+    try {
+      await api.delete(`/tasks/recurring-rules/${ruleId}`);
+      fetchRecurringRules();
+    } catch (err) {
+      console.error('Failed to terminate rule:', err);
+    }
+  };
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -229,7 +280,8 @@ export default function AdminTasksPage() {
     fetchEmployees();
     fetchCompanies();
     fetchCategories();
-  }, [fetchTasks, fetchEmployees, fetchCompanies, fetchCategories]);
+    fetchRecurringRules();
+  }, [fetchTasks, fetchEmployees, fetchCompanies, fetchCategories, fetchRecurringRules]);
 
   // Client-side filtering
   const filteredTasks = useMemo(() => {
@@ -450,10 +502,22 @@ export default function AdminTasksPage() {
         >
           My Tasks
         </button>
+        <button
+          onClick={() => setActiveTab('recurring')}
+          className={`py-3 px-6 text-sm font-bold border-b-2 transition-all ${
+            activeTab === 'recurring'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Recurring Tasks
+        </button>
       </div>
 
-      {/* Search & Filters */}
-      <div className="glass rounded-xl p-5 mb-6 space-y-4">
+      {activeTab !== 'recurring' ? (
+        <>
+          {/* Search & Filters */}
+          <div className="glass rounded-xl p-5 mb-6 space-y-4">
         {/* Search Bar */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -482,6 +546,7 @@ export default function AdminTasksPage() {
               <option value="pending">Pending</option>
               <option value="in_progress">In Progress</option>
               <option value="completed">Completed</option>
+              <option value="completed_late">Completed Late</option>
               <option value="overdue">Overdue</option>
             </select>
           </div>
@@ -786,6 +851,155 @@ export default function AdminTasksPage() {
           </tbody>
         </table>
       </div>
+    </>
+  ) : (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-slate-800">Recurring Task Chains</h2>
+        <button
+          type="button"
+          onClick={fetchRecurringRules}
+          className="btn btn-ghost text-xs"
+        >
+          <RefreshCcw className="w-3.5 h-3.5 mr-1" /> Reload Rules
+        </button>
+      </div>
+
+      {rulesLoading ? (
+        <div className="text-center py-12 text-slate-400">Loading recurring rules...</div>
+      ) : recurringRules.length === 0 ? (
+        <div className="text-center py-16 border-2 border-dashed border-slate-200 rounded-xl bg-white/50 animate-in fade-in">
+          <RefreshCcw className="w-12 h-12 text-slate-300 mx-auto mb-3 animate-pulse" />
+          <p className="text-slate-500 font-bold">No recurring task chains found</p>
+          <p className="text-slate-400 text-xs mt-1">Create a recurring task via "Assign Work" to populate this view.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {recurringRules.map((rule) => {
+            const nextRunDate = rule.next_run ? new Date(rule.next_run).toLocaleString() : 'N/A';
+            const isPaused = rule.status === 'paused';
+            
+            return (
+              <div key={rule.id} className="glass rounded-2xl p-6 border border-slate-100 flex flex-col justify-between space-y-4 shadow-sm hover:shadow-md transition-all duration-300">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-extrabold text-slate-800 text-base">{rule.name}</h3>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Every {rule.interval} {rule.recurrence_type}(s)
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-1.5">
+                      {rule.status === 'active' ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100">
+                          Paused
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-slate-600 font-medium line-clamp-3">
+                    {rule.work_description}
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 font-bold text-slate-500">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Next Run Date</span>
+                      <span className="text-slate-700">{nextRunDate}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Occurrence Count</span>
+                      <span className="text-slate-700">{rule.occurrence_count} spawned</span>
+                    </div>
+                  </div>
+                  
+                  {rule.weekdays && rule.weekdays.length > 0 && (
+                    <div className="text-xs pt-1 font-bold text-slate-500">
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Scheduled Weekdays</span>
+                      <span className="text-indigo-600">
+                        {rule.weekdays.map((w) => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][w]).join(', ')}
+                      </span>
+                    </div>
+                  )}
+
+                  {rule.paused_until_date && (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-100/50 text-[11px] text-amber-700 font-bold flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      Paused until: {new Date(rule.paused_until_date).toLocaleString()}
+                    </div>
+                  )}
+
+                  {rule.assignee_names && rule.assignee_names.length > 0 && (
+                    <div className="text-xs pt-1">
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Assigned To</span>
+                      <span className="text-slate-700 font-semibold">{rule.assignee_names.join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePause(rule.id, rule.status)}
+                    className={`btn text-xs px-4 py-2 h-9 rounded-lg ${
+                      isPaused ? 'btn-primary' : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    {isPaused ? 'Resume Rule' : 'Pause Rule'}
+                  </button>
+
+                  {!isPaused ? (
+                    <div className="relative group">
+                      <button type="button" className="btn btn-secondary text-xs px-4 py-2 h-9 rounded-lg">
+                        Pause for...
+                      </button>
+                      <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 z-10 min-w-[120px] space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => handlePauseTemporarily(rule.id, '3days')}
+                          className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-[11px] font-bold text-slate-600 rounded-lg"
+                        >
+                          3 Days
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePauseTemporarily(rule.id, '1week')}
+                          className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-[11px] font-bold text-slate-600 rounded-lg"
+                        >
+                          1 Week
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePauseTemporarily(rule.id, '2weeks')}
+                          className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-[11px] font-bold text-slate-600 rounded-lg"
+                        >
+                          2 Weeks
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => handleTerminateRule(rule.id)}
+                    className="btn bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 text-xs px-4 py-2 h-9 rounded-lg ml-auto flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Terminate
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  )}
 
       {/* Create Task Modal */}
       {showCreateModal && (
@@ -918,13 +1132,16 @@ export default function AdminTasksPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wide">Dead-line</label>
+                    <label className={`block text-sm font-bold mb-2 uppercase tracking-wide ${newTask.is_recurrent ? 'text-slate-400' : 'text-slate-700'}`}>
+                      Dead-line {newTask.is_recurrent && <span className="text-[10px] text-amber-500 font-bold tracking-tight">(SET VIA RECURRENCE)</span>}
+                    </label>
                     <input
                       type="datetime-local"
-                      value={newTask.deadline}
+                      value={newTask.is_recurrent ? '' : newTask.deadline}
                       onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
-                      className="input h-11"
-                      required
+                      className="input h-11 disabled:opacity-50 disabled:bg-slate-100"
+                      disabled={newTask.is_recurrent}
+                      required={!newTask.is_recurrent}
                     />
                   </div>
                 </div>
@@ -992,6 +1209,19 @@ export default function AdminTasksPage() {
 
                 {newTask.is_recurrent && (
                   <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="bg-amber-50 border border-amber-100/50 rounded-xl p-3 text-xs text-amber-800 font-medium mb-2">
+                      Please specify the first occurrence's deadline below. All subsequent recurrences will be scheduled relative to this date and time.
+                    </div>
+                    <div>
+                      <label className="block text-xs font-black text-indigo-600 uppercase mb-2 tracking-wide">First Occurrence Deadline</label>
+                      <input
+                        type="datetime-local"
+                        value={newTask.deadline}
+                        onChange={(e) => setNewTask(prev => ({ ...prev, deadline: e.target.value }))}
+                        className="input h-10 mb-2"
+                        required={newTask.is_recurrent}
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-black text-slate-500 uppercase mb-2 tracking-wide">Repeat Interval</label>

@@ -7,12 +7,13 @@ import Link from 'next/link';
 import {
   LayoutDashboard, Users, ClipboardList, FileBarChart,
   Trophy, LogOut, Zap, ChevronRight, Building2, MapPin, Menu, X as CloseIcon,
-  Settings, Calendar, Clock, DollarSign, Trash2, MessageSquare, Briefcase
+  Settings, Calendar, Clock, DollarSign, Trash2, MessageSquare, Briefcase, Megaphone
 } from 'lucide-react';
 import { useState } from 'react';
 import GlobalSearch from '@/components/GlobalSearch';
 import NotificationBell from '@/components/NotificationBell';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
+import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 import { Key } from 'lucide-react';
 import AIAssistant from '@/components/AIAssistant';
 import { Skeleton } from '@/components/Skeleton';
@@ -39,6 +40,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { href: '/admin/payroll', label: 'Payroll Engine', icon: DollarSign, visible: isHRTeam },
     { href: '/admin/reports', label: 'Reports', icon: FileBarChart, visible: true },
     { href: '/admin/leaderboard', label: 'Leaderboard', icon: Trophy, visible: true },
+    { href: '/admin/announcements', label: 'Announcements', icon: Megaphone, visible: true },
     { href: '/admin/chat', label: 'Chat Collaboration', icon: MessageSquare, visible: true },
     { href: '/employee/dashboard', label: 'Employee Portal', icon: Users, visible: true },
   ].filter(item => item.visible);
@@ -146,7 +148,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-64 min-h-screen">
+      <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
         {/* Top Header */}
         <header className="h-16 border-b border-border bg-white/50 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 flex items-center justify-between">
           <div className="flex items-center gap-4 flex-1">

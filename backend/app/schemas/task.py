@@ -26,12 +26,13 @@ class CreateTaskRequest(BaseModel):
     assigned_to: Optional[str] = None  # Single employee
     assigned_to_list: Optional[List[str]] = None  # Multiple employees
     priority: str = Field(default="medium", pattern="^(regular|medium|high|critical)$")
+    is_recurrent: bool = False
     deadline: Optional[datetime] = None
     tenant_id: Optional[str] = None  # Single company
     company_id_list: Optional[List[str]] = None  # Multiple companies
     for_all: bool = False
-    is_recurrent: bool = False
     recurrence: Optional[RecurrenceRuleSchema] = None
+    category_ids: Optional[List[str]] = None
 
     @validator("deadline")
     def deadline_must_be_future(cls, v, values):
@@ -48,8 +49,11 @@ class CreateTaskRequest(BaseModel):
                 raise ValueError("Deadline must be a future date for recurring tasks")
         return v
 
-
-    category_ids: Optional[List[str]] = None
+    @validator("recurrence")
+    def recurrence_required_if_recurrent(cls, v, values):
+        if values.get("is_recurrent") and v is None:
+            raise ValueError("Recurrence options must be specified for recurring tasks")
+        return v
 
 
 class UpdateTaskRequest(BaseModel):

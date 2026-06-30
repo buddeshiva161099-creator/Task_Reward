@@ -12,6 +12,7 @@ class Notification(Document):
     type: str = Field(..., max_length=50)  # task_assigned, task_completed, system, chat
     chat_group_id: Optional[PydanticObjectId] = None
     is_read: bool = Field(default=False)
+    image_url: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     class Settings:

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import path from "path";
 
-const BACKEND_URL = process.env.BACKEND_URL || "https://vison-employe-work-scheduler-with-privacy-sjxt.onrender.com";
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:8000";
 
 const nextConfig: NextConfig = {
   images: {

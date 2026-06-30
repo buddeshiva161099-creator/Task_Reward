@@ -270,9 +270,9 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
         from datetime import timezone
         now = datetime.now(timezone.utc)
         update_data["completed_at"] = now
-        # If past deadline, set status to DELAYED or COMPLETED_LATE
+        # If past deadline, set status to COMPLETED_LATE
         if task.deadline < now:
-            update_data["status"] = TaskStatus.DELAYED
+            update_data["status"] = TaskStatus.COMPLETED_LATE
 
     from datetime import timezone
     update_data["updated_at"] = datetime.now(timezone.utc)
@@ -280,6 +280,11 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
 
     # Reload the task
     task = await Task.get(PydanticObjectId(task_id))
+
+    # Trigger immediate next recurrence generation if task is submitted / completed
+    if task.status in [TaskStatus.COMPLETED, TaskStatus.COMPLETED_LATE, TaskStatus.DELAYED] and task.recurring_task_id:
+        from app.services.recurrence_service import handle_task_submission
+        await handle_task_submission(task)
 
     # Apply Performance Scoring
     final_status = task.status

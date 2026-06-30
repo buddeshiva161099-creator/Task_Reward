@@ -1,7 +1,9 @@
 """
 Authentication routes - login, register, and current user.
 """
-from fastapi import APIRouter, HTTPException, status, Depends, Response
+from fastapi import APIRouter, HTTPException, status, Depends, Response, UploadFile, File
+from typing import Optional
+from pydantic import BaseModel
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, ChangePasswordRequest
 from app.models.user import User, UserRole
 from app.auth.password import hash_password, verify_password, validate_password_strength
@@ -212,3 +214,204 @@ async def logout(response: Response):
     response.delete_cookie(key="access_token", path="/")
     response.delete_cookie(key="owner_access_token", path="/")
     return {"message": "Successfully logged out"}
+
+
+@router.get("/announcement")
+async def get_active_announcement():
+    from app.models.notification import Notification
+    from beanie import PydanticObjectId
+    
+    special_id = PydanticObjectId("000000000000000000000000")
+    announcement = await Notification.find(
+        Notification.user_id == special_id,
+        Notification.type == "broadcast"
+    ).sort("-created_at").first_or_none()
+    
+    if announcement:
+        return {
+            "message": announcement.message,
+            "banner_type": announcement.title,
+            "image_url": announcement.image_url,
+            "created_at": announcement.created_at.isoformat()
+        }
+    return None
+
+
+@router.get("/announcements")
+async def get_active_announcements():
+    from app.models.notification import Notification
+    from beanie import PydanticObjectId
+    
+    special_id = PydanticObjectId("000000000000000000000000")
+    announcements = await Notification.find(
+        Notification.user_id == special_id,
+        Notification.type == "broadcast"
+    ).sort("created_at").to_list()
+    
+    return [
+        {
+            "id": str(a.id),
+            "message": a.message,
+            "banner_type": a.title,
+            "image_url": a.image_url,
+            "created_at": a.created_at.isoformat() if a.created_at else None
+        }
+        for a in announcements
+    ]
+
+
+class TenantAnnouncementPayload(BaseModel):
+    message: str
+    banner_type: str = "info"
+    image_url: Optional[str] = None
+
+
+@router.get("/announcements/tenant")
+async def get_tenant_announcements(
+    current_user: User = Depends(get_current_user)
+):
+    from app.models.notification import Notification
+    from beanie import PydanticObjectId
+    from typing import Optional
+    
+    special_id = PydanticObjectId("000000000000000000000000")
+    
+    from beanie.operators import Or
+    
+    announcements = await Notification.find(
+        Notification.user_id == special_id,
+        Notification.type == "broadcast",
+        Or(
+            Notification.tenant_id == current_user.tenant_id,
+            Notification.tenant_id == None
+        )
+    ).sort("created_at").to_list()
+    
+    return [
+        {
+            "id": str(a.id),
+            "message": a.message,
+            "banner_type": a.title,
+            "image_url": a.image_url,
+            "tenant_id": str(a.tenant_id) if a.tenant_id else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None
+        }
+        for a in announcements
+    ]
+
+
+@router.post("/announcements/tenant")
+async def create_tenant_announcement(
+    payload: TenantAnnouncementPayload,
+    current_user: User = Depends(get_current_user)
+):
+    from app.models.notification import Notification
+    from beanie import PydanticObjectId
+    
+    allowed_roles = {UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER}
+    if current_user.role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden. Only Admins or Managers can publish announcements."
+        )
+        
+    message = payload.message.strip()
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Message cannot be blank."
+        )
+        
+    special_id = PydanticObjectId("000000000000000000000000")
+    announcement = Notification(
+        user_id=special_id,
+        tenant_id=current_user.tenant_id,
+        title=payload.banner_type.strip(),
+        message=message,
+        type="broadcast",
+        image_url=payload.image_url.strip() if payload.image_url else None
+    )
+    await announcement.insert()
+    return {"status": "success", "message": "Tenant announcement posted successfully."}
+
+
+@router.delete("/announcements/tenant/{id}")
+async def delete_tenant_announcement(
+    id: str,
+    current_user: User = Depends(get_current_user)
+):
+    from app.models.notification import Notification
+    from beanie import PydanticObjectId
+    
+    allowed_roles = {UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER}
+    if current_user.role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden. Only Admins or Managers can delete announcements."
+        )
+        
+    ann_id = PydanticObjectId(id)
+    announcement = await Notification.find_one(
+        Notification.id == ann_id,
+        Notification.tenant_id == current_user.tenant_id,
+        Notification.type == "broadcast"
+    )
+    if not announcement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Announcement not found or belongs to another tenant."
+        )
+        
+    await announcement.delete()
+    return {"status": "success", "message": "Announcement deleted successfully."}
+
+
+@router.post("/announcements/tenant/upload")
+async def upload_tenant_announcement_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    from app.utils.uploads import build_stored_filename
+    from pathlib import Path
+    from typing import Optional
+    
+    allowed_roles = {UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.MANAGER}
+    if current_user.role not in allowed_roles:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden. Only Admins or Managers can upload announcement assets."
+        )
+        
+    max_bytes = 5 * 1024 * 1024
+    tenant_folder = f"tenant_{current_user.tenant_id}" if current_user.tenant_id else "global"
+    upload_dir = Path("uploads") / "announcements" / tenant_folder
+    upload_dir = upload_dir.resolve()
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    stored_filename = build_stored_filename(file.filename)
+    destination = (upload_dir / stored_filename).resolve()
+    
+    if upload_dir not in destination.parents:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path destination.")
+        
+    bytes_written = 0
+    with destination.open("wb") as buffer:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            bytes_written += len(chunk)
+            if bytes_written > max_bytes:
+                buffer.close()
+                destination.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail="File exceeds the 5MB upload limit."
+                )
+            buffer.write(chunk)
+            
+    file_url = f"/uploads/announcements/{tenant_folder}/{stored_filename}"
+    return {
+        "status": "success",
+        "file_url": file_url
+    }

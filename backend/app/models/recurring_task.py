@@ -44,6 +44,8 @@ class RecurrenceRule(Document):
     occurrences: Optional[int] = None  # Used when end_type == AFTER_OCCURRENCES
     occurrence_count: int = Field(0, description="Number of times the rule has fired")
     is_active: bool = Field(True, description="Whether the rule is currently active")
+    status: str = Field("active", description="active, paused, terminated")
+    paused_until_date: Optional[datetime] = Field(default=None, description="Resume date for temporary pause")
     next_run: Optional[datetime] = None
     last_occurrence: Optional[datetime] = None
     assigned_to_list: List[PydanticObjectId] = Field(default_factory=list, description="Users assigned to this rule")

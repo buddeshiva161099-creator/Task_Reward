@@ -394,6 +394,20 @@ export interface PlatformMetrics {
     tenant_id: string | null;
     created_at: string | null;
   }>;
+  mrr?: number;
+  db_stats?: {
+    collections: number;
+    objects: number;
+    data_size_mb: number;
+    storage_size_mb: number;
+    index_size_mb: number;
+  };
+  engagement?: {
+    total_tasks: number;
+    completed_tasks: number;
+    total_attendance: number;
+    total_reward_points: number;
+  };
 }
 
 export interface PlatformAuditEntry {

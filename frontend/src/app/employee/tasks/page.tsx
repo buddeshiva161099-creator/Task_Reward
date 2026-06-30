@@ -6,7 +6,7 @@ import { Task, Company, Category } from '@/types';
 import {
   ClipboardList, Plus, Filter, X, CheckCircle2, Play, Award, Clock,
   Building2, MessageSquarePlus, Send, ChevronUp, Pencil, MessageSquare,
-  Search, ChevronDown, Check, RefreshCcw, Tag
+  Search, ChevronDown, Check, RefreshCcw, Tag, Trash2
 } from 'lucide-react';
 import { cn, formatDateTime, getStatusColor, getStatusLabel, getPriorityColor, timeAgo, formatPreciseDateTime } from '@/lib/utils';
 import { CardSkeleton } from '@/components/SkeletonLoaders';
@@ -73,6 +73,59 @@ export default function EmployeeTasksPage() {
     type: 'daily', interval: 1, weekdays: [] as number[], month_day: 1,
     end_type: 'never', end_value: '',
   });
+
+  const [activeTab, setActiveTab] = useState<'my' | 'recurring'>('my');
+  const [recurringRules, setRecurringRules] = useState<any[]>([]);
+  const [rulesLoading, setRulesLoading] = useState(false);
+
+  const fetchRecurringRules = useCallback(async () => {
+    setRulesLoading(true);
+    try {
+      const res = await api.get('/tasks/recurring-rules');
+      setRecurringRules(res.data);
+    } catch (err) {
+      console.error('Failed to fetch recurring rules:', err);
+    } finally {
+      setRulesLoading(false);
+    }
+  }, []);
+
+  const handleTogglePause = async (ruleId: string, currentStatus: string) => {
+    try {
+      if (currentStatus === 'paused') {
+        await api.post(`/tasks/recurring-rules/${ruleId}/resume`);
+      } else {
+        await api.post(`/tasks/recurring-rules/${ruleId}/pause`);
+      }
+      fetchRecurringRules();
+    } catch (err) {
+      console.error('Failed to toggle pause on rule:', err);
+    }
+  };
+
+  const handlePauseTemporarily = async (ruleId: string, duration: '3days' | '1week' | '2weeks') => {
+    try {
+      const params: any = {};
+      if (duration === '3days') params.days = 3;
+      if (duration === '1week') params.weeks = 1;
+      if (duration === '2weeks') params.weeks = 2;
+      await api.post(`/tasks/recurring-rules/${ruleId}/pause`, null, { params });
+      fetchRecurringRules();
+    } catch (err) {
+      console.error('Failed to pause rule temporarily:', err);
+    }
+  };
+
+  const handleTerminateRule = async (ruleId: string) => {
+    if (!confirm('Are you sure you want to terminate this recurring task chain? This will stop future task generations.')) return;
+    try {
+      await api.delete(`/tasks/recurring-rules/${ruleId}`);
+      fetchRecurringRules();
+    } catch (err) {
+      console.error('Failed to terminate rule:', err);
+    }
+  };
+
   // Remarks state
   const [expandedTask, setExpandedTask] = useState<string | null>(null);
   const [remarkText, setRemarkText] = useState('');
@@ -124,7 +177,8 @@ export default function EmployeeTasksPage() {
     fetchTasks();
     fetchCompanies();
     fetchCategories();
-  }, [fetchTasks, fetchCompanies, fetchCategories]);
+    fetchRecurringRules();
+  }, [fetchTasks, fetchCompanies, fetchCategories, fetchRecurringRules]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -279,8 +333,34 @@ export default function EmployeeTasksPage() {
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="glass rounded-xl p-4 mb-6 flex flex-wrap gap-4 items-center">
+      {/* Tab Switcher */}
+      <div className="flex border-b border-slate-200 mb-6">
+        <button
+          onClick={() => setActiveTab('my')}
+          className={`py-3 px-6 text-sm font-bold border-b-2 transition-all ${
+            activeTab === 'my'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          My Tasks
+        </button>
+        <button
+          onClick={() => setActiveTab('recurring')}
+          className={`py-3 px-6 text-sm font-bold border-b-2 transition-all ${
+            activeTab === 'recurring'
+              ? 'border-indigo-600 text-indigo-600'
+              : 'border-transparent text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Recurring Tasks
+        </button>
+      </div>
+
+      {activeTab === 'my' ? (
+        <>
+          {/* Filters */}
+          <div className="glass rounded-xl p-4 mb-6 flex flex-wrap gap-4 items-center">
         <Filter className="w-4 h-4 text-muted-foreground" />
         <select
           value={statusFilter}
@@ -291,6 +371,7 @@ export default function EmployeeTasksPage() {
           <option value="pending">Pending</option>
           <option value="in_progress">In Progress</option>
           <option value="completed">Completed</option>
+          <option value="completed_late">Completed Late</option>
           <option value="overdue">Overdue</option>
         </select>
         {statusFilter && (
@@ -310,13 +391,13 @@ export default function EmployeeTasksPage() {
             <div key={task.id} className="glass rounded-xl overflow-hidden stat-card border border-slate-100 hover:border-indigo-100 transition-all duration-300">
               <div className="p-5">
                 <div className="flex items-start gap-4">
-                  {/* Status Indicator */}
-                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${task.status === 'completed' ? 'bg-green-50' :
+                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                    (task.status === 'completed' || task.status === 'completed_late') ? 'bg-green-50' :
                       task.status === 'overdue' ? 'bg-red-50' :
                         task.status === 'in_progress' ? 'bg-blue-50' :
                           'bg-amber-50'
                     }`}>
-                    {task.status === 'completed' ? <CheckCircle2 className="w-5 h-5 text-green-500" /> :
+                    {(task.status === 'completed' || task.status === 'completed_late') ? <CheckCircle2 className="w-5 h-5 text-green-500" /> :
                       task.status === 'overdue' ? <Clock className="w-5 h-5 text-red-500" /> :
                         task.status === 'in_progress' ? <Play className="w-5 h-5 text-blue-500" /> :
                           <Clock className="w-5 h-5 text-amber-500" />
@@ -514,6 +595,154 @@ export default function EmployeeTasksPage() {
           </div>
         )}
       </div>
+    </>
+  ) : (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-slate-800">Recurring Task Chains</h2>
+        <button
+          type="button"
+          onClick={fetchRecurringRules}
+          className="btn btn-ghost text-xs"
+        >
+          <RefreshCcw className="w-3.5 h-3.5 mr-1" /> Reload Rules
+        </button>
+      </div>
+
+      {rulesLoading ? (
+        <div className="text-center py-12 text-slate-400">Loading recurring rules...</div>
+      ) : recurringRules.length === 0 ? (
+        <div className="text-center py-16 border-2 border-dashed border-slate-200 rounded-xl bg-white/50 animate-in fade-in">
+          <RefreshCcw className="w-12 h-12 text-slate-300 mx-auto mb-3 animate-pulse" />
+          <p className="text-slate-500 font-bold">No recurring task chains found</p>
+          <p className="text-slate-400 text-xs mt-1">Create a recurring task via "New Personal Task" to populate this view.</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {recurringRules.map((rule) => {
+            const nextRunDate = rule.next_run ? new Date(rule.next_run).toLocaleString() : 'N/A';
+            const isPaused = rule.status === 'paused';
+            
+            return (
+              <div key={rule.id} className="glass rounded-2xl p-6 border border-slate-100 flex flex-col justify-between space-y-4 shadow-sm hover:shadow-md transition-all duration-300">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <h3 className="font-extrabold text-slate-800 text-base">{rule.name}</h3>
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Every {rule.interval} {rule.recurrence_type}(s)
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-1.5">
+                      {rule.status === 'active' ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Active
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-100">
+                          Paused
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="text-sm text-slate-600 font-medium line-clamp-3">
+                    {rule.work_description}
+                  </p>
+                  
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 font-bold text-slate-500">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Next Run Date</span>
+                      <span className="text-slate-700">{nextRunDate}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Occurrence Count</span>
+                      <span className="text-slate-700">{rule.occurrence_count} spawned</span>
+                    </div>
+                  </div>
+                  
+                  {rule.weekdays && rule.weekdays.length > 0 && (
+                    <div className="text-xs pt-1 font-bold text-slate-500">
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Scheduled Weekdays</span>
+                      <span className="text-indigo-600">
+                        {rule.weekdays.map((w) => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][w]).join(', ')}
+                      </span>
+                    </div>
+                  )}
+
+                  {rule.paused_until_date && (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-100/50 text-[11px] text-amber-700 font-bold flex items-center gap-2">
+                      <Clock className="w-3.5 h-3.5 text-amber-500" />
+                      Paused until: {new Date(rule.paused_until_date).toLocaleString()}
+                    </div>
+                  )}
+
+                  {rule.assignee_names && rule.assignee_names.length > 0 && (
+                    <div className="text-xs pt-1">
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Assigned To</span>
+                      <span className="text-slate-700 font-semibold">{rule.assignee_names.join(', ')}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePause(rule.id, rule.status)}
+                    className={`btn text-xs px-4 py-2 h-9 rounded-lg ${
+                      isPaused ? 'btn-primary' : 'bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    {isPaused ? 'Resume Rule' : 'Pause Rule'}
+                  </button>
+
+                  {!isPaused ? (
+                    <div className="relative group">
+                      <button type="button" className="btn btn-secondary text-xs px-4 py-2 h-9 rounded-lg">
+                        Pause for...
+                      </button>
+                      <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 z-10 min-w-[120px] space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => handlePauseTemporarily(rule.id, '3days')}
+                          className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-[11px] font-bold text-slate-600 rounded-lg"
+                        >
+                          3 Days
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePauseTemporarily(rule.id, '1week')}
+                          className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-[11px] font-bold text-slate-600 rounded-lg"
+                        >
+                          1 Week
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePauseTemporarily(rule.id, '2weeks')}
+                          className="w-full text-left px-3 py-1.5 hover:bg-slate-50 text-[11px] font-bold text-slate-600 rounded-lg"
+                        >
+                          2 Weeks
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <button
+                    type="button"
+                    onClick={() => handleTerminateRule(rule.id)}
+                    className="btn bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 text-xs px-4 py-2 h-9 rounded-lg ml-auto flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Terminate
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
 
       {/* Create Personal Task Modal */}
       {showCreateModal && (
@@ -592,8 +821,17 @@ export default function EmployeeTasksPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-2 uppercase tracking-wide">Deadline</label>
-                  <input type="datetime-local" value={newTask.deadline} onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })} className="input h-11" required />
+                  <label className={`block text-sm font-bold mb-2 uppercase tracking-wide ${newTask.is_recurrent ? 'text-slate-400' : 'text-slate-700'}`}>
+                    Deadline {newTask.is_recurrent && <span className="text-[10px] text-amber-500 font-bold tracking-tight">(SET VIA RECURRENCE)</span>}
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={newTask.is_recurrent ? '' : newTask.deadline}
+                    onChange={(e) => setNewTask({ ...newTask, deadline: e.target.value })}
+                    className="input h-11 disabled:opacity-50 disabled:bg-slate-100"
+                    disabled={newTask.is_recurrent}
+                    required={!newTask.is_recurrent}
+                  />
                 </div>
               </div>
 
@@ -616,6 +854,19 @@ export default function EmployeeTasksPage() {
                 </div>
                 {newTask.is_recurrent && (
                   <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="bg-amber-50 border border-amber-100/50 rounded-xl p-3 text-xs text-amber-800 font-medium mb-2">
+                      Please specify the first occurrence's deadline below. All subsequent recurrences will be scheduled relative to this date and time.
+                    </div>
+                    <div>
+                      <label className="block text-xs font-black text-indigo-600 uppercase mb-2 tracking-wide">First Occurrence Deadline</label>
+                      <input
+                        type="datetime-local"
+                        value={newTask.deadline}
+                        onChange={(e) => setNewTask(prev => ({ ...prev, deadline: e.target.value }))}
+                        className="input h-10 mb-2"
+                        required={newTask.is_recurrent}
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <label className="block text-xs font-black text-slate-500 uppercase mb-2 tracking-wide">Repeat Interval</label>

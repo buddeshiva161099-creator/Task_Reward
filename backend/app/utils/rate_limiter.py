@@ -22,6 +22,9 @@ class RateLimiter:
         return False
 
     async def __call__(self, request: Request):
+        from app.config import settings
+        if settings.ENVIRONMENT == "development":
+            return
         client_ip = request.client.host if request.client else "unknown"
         # Scope rate limit per client IP and endpoint path
         key = f"{client_ip}:{request.url.path}"

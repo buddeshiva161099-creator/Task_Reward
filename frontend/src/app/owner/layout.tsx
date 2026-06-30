@@ -15,8 +15,12 @@ import {
   Menu,
   X as CloseIcon,
   Key,
+  Compass,
+  Megaphone,
+  Layers,
 } from 'lucide-react';
 import ChangePasswordModal from '@/components/ChangePasswordModal';
+import { AnnouncementBanner } from '@/components/AnnouncementBanner';
 
 export default function OwnerLayout({ children }: { children: React.ReactNode }) {
   const { owner, isLoading, logout } = useOwnerAuth();
@@ -48,6 +52,9 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
   const navItems = [
     { href: '/owner/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/owner/tenants', label: 'Tenants', icon: Building2 },
+    { href: '/owner/explorer', label: 'Tenant Explorer', icon: Compass },
+    { href: '/owner/announcements', label: 'Announcements', icon: Megaphone },
+    { href: '/owner/tenant-announcements', label: 'Tenants Announcements', icon: Layers },
     { href: '/owner/audit', label: 'Audit Log', icon: ScrollText },
     { href: '/owner/system', label: 'System Health', icon: Activity },
   ];
@@ -129,7 +136,7 @@ export default function OwnerLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      <main className="flex-1 lg:ml-64 min-h-screen">
+      <main className="flex-1 lg:ml-64 min-h-screen flex flex-col">
         <header className="h-16 border-b border-slate-200 bg-white/80 backdrop-blur-md sticky top-0 z-40 px-4 lg:px-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button

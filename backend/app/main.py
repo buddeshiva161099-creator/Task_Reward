@@ -233,6 +233,7 @@ import os
 # Create uploads directory if not exists
 os.makedirs("uploads/chat", exist_ok=True)
 os.makedirs("uploads/identity_docs", exist_ok=True)
+os.makedirs("uploads/announcements/global", exist_ok=True)
 
 
 @app.get("/uploads/{file_type}/{tenant_sub}/{filename}", tags=["Uploads"])
@@ -244,17 +245,27 @@ async def get_uploaded_file(
 ):
     """Securely serve uploaded identity documents and chat files, enforcing tenant isolation."""
     # 1. Validate file type
-    if file_type not in {"identity_docs", "chat"}:
+    if file_type not in {"identity_docs", "chat", "announcements"}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File type not found")
 
     # 2. Check tenant scoping / isolation
     if current_user.role != UserRole.PLATFORM_OWNER:
-        expected_tenant_sub = f"tenant_{current_user.tenant_id}" if current_user.tenant_id else "global"
-        if tenant_sub != expected_tenant_sub:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied. Tenant isolation check failed."
-            )
+        if file_type == "announcements":
+            allowed_subs = {"global"}
+            if current_user.tenant_id:
+                allowed_subs.add(f"tenant_{current_user.tenant_id}")
+            if tenant_sub not in allowed_subs:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied. Tenant isolation check failed."
+                )
+        else:
+            expected_tenant_sub = f"tenant_{current_user.tenant_id}" if current_user.tenant_id else "global"
+            if tenant_sub != expected_tenant_sub:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied. Tenant isolation check failed."
+                )
 
     # 3. Path traversal prevention
     file_path = os.path.normpath(os.path.join("uploads", file_type, tenant_sub, filename))
