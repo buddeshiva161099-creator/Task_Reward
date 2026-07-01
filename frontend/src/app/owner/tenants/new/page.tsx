@@ -116,7 +116,7 @@ export default function OnboardTenantPage() {
           </div>
           <h1 className="text-2xl font-extrabold text-slate-900">Tenant Onboarded!</h1>
           <p className="text-sm text-slate-600 mt-2">
-            <span className="font-semibold">{result.tenant.name}</span> is now live on TaskReward.
+            <span className="font-semibold">{result.tenant.name}</span> is now live on TalentFlow.
           </p>
         </div>
 

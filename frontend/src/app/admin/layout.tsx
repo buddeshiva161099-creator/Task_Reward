@@ -19,6 +19,7 @@ import { Key } from 'lucide-react';
 import AIAssistant from '@/components/AIAssistant';
 import { Skeleton } from '@/components/Skeleton';
 import ScopeSwitcher from '@/components/ScopeSwitcher';
+import TalentFlowLogo from '@/components/TalentFlowLogo';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const { user, isLoading, isAdmin, isHR, isManager, isAssistantManager, isHRTeam, isTaskTeam, logout, activeBusinessUnitId, activeCompanyId } = useAuth();
@@ -97,11 +98,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         {/* Brand */}
         <div className="p-5 border-b border-border flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-500 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
+            <TalentFlowLogo size={36} />
             <div>
-              <h1 className="font-bold text-sm gradient-text">TaskReward</h1>
+              <h1 className="font-bold text-sm gradient-text">TalentFlow</h1>
               <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{user.role.replace('_', ' ')} Panel</p>
             </div>
           </div>

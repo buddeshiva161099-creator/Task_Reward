@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import Image from 'next/image';
 import { cn } from '@/lib/utils';
+import TalentFlowLogo from '@/components/TalentFlowLogo';
 
 export default function Home() {
   const { user } = useAuth();
@@ -32,11 +33,9 @@ export default function Home() {
       <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-slate-100">
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-200 text-white">
-              <Zap className="w-6 h-6 animate-pulse" />
-            </div>
+            <TalentFlowLogo size={36} />
             <span className="text-xl font-bold tracking-tight text-slate-900">
-              TaskReward
+              TalentFlow
             </span>
           </div>
           
@@ -121,7 +120,7 @@ export default function Home() {
             <div className="relative bg-white p-2.5 rounded-3xl border border-slate-200 shadow-2xl">
               <Image 
                 src="/taskreward_hero_mockup.png" 
-                alt="TaskReward Dashboard Preview" 
+                alt="TalentFlow Dashboard Preview" 
                 width={800} 
                 height={600} 
                 className="rounded-2xl shadow-sm border border-slate-100"
@@ -481,7 +480,7 @@ export default function Home() {
                 </div>
 
                 <p className="text-sm text-slate-500 leading-relaxed font-light">
-                  Best for evaluating features and getting a feel for the TaskReward workspace setup.
+                  Best for evaluating features and getting a feel for the TalentFlow workspace setup.
                 </p>
 
                 <div className="border-t border-slate-100 pt-6 space-y-3.5">
@@ -624,14 +623,14 @@ export default function Home() {
               <HelpCircle className="w-8 h-8 text-indigo-600" />
               Frequently Asked Questions
             </h2>
-            <p className="text-slate-600">Everything you need to know about the TaskReward operational platform.</p>
+            <p className="text-slate-600">Everything you need to know about the TalentFlow operational platform.</p>
           </div>
 
           <div className="space-y-4">
             {[
               {
                 q: "How does the Geofenced Attendance check work?",
-                a: "When employees clock in or out from the interface, TaskReward automatically requests their device coordinates. These coordinates are checked against the company's configured latitude/longitude bounds to ensure verification before registering the punch record."
+                a: "When employees clock in or out from the interface, TalentFlow automatically requests their device coordinates. These coordinates are checked against the company's configured latitude/longitude bounds to ensure verification before registering the punch record."
               },
               {
                 q: "What is the AI Fatigue Assistant?",
@@ -643,7 +642,7 @@ export default function Home() {
               },
               {
                 q: "Is our organization's data isolated?",
-                a: "Yes. TaskReward employs tenant-level security middleware. Every query on users, tasks, attendance, and payroll filters strictly by the active tenant ID, completely isolating your company's data from other database tenants."
+                a: "Yes. TalentFlow employs tenant-level security middleware. Every query on users, tasks, attendance, and payroll filters strictly by the active tenant ID, completely isolating your company's data from other database tenants."
               }
             ].map((faq, i) => (
               <div 
@@ -707,8 +706,8 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 grid md:grid-cols-4 gap-12 mb-12">
           <div className="col-span-2 space-y-5">
             <div className="flex items-center gap-3">
-              <Zap className="w-7 h-7 text-indigo-600" />
-              <span className="text-xl font-bold text-slate-900 tracking-tight uppercase">TaskReward</span>
+              <TalentFlowLogo size={36} />
+              <span className="text-xl font-bold text-slate-900 tracking-tight uppercase">TalentFlow</span>
             </div>
             <p className="text-slate-500 max-w-sm text-sm leading-relaxed font-light">
               The integrated operational workspace for modern organizations, simplifying geofenced attendance logs, gamified task completion tracking, and payroll processing.
@@ -732,7 +731,7 @@ export default function Home() {
           </div>
         </div>
         <div className="max-w-7xl mx-auto px-6 pt-8 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-slate-400 font-light">© 2026 TaskReward Workforce Operations Platform. All rights reserved.</p>
+          <p className="text-xs text-slate-400 font-light">© 2026 TalentFlow Workforce Operations Platform. All rights reserved.</p>
           <div className="flex gap-4">
              <div className="w-2.5 h-2.5 bg-indigo-600 rounded-full animate-ping" />
              <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest">Platform Healthy & Secured</span>

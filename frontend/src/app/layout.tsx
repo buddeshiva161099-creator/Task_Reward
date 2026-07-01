@@ -10,7 +10,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "TaskReward - Employee Task & Reward Management",
+  title: "TalentFlow - Unified HRM & Task Management",
   description: "Modern platform for managing employees, tasks, productivity tracking, and rewards",
 };
 

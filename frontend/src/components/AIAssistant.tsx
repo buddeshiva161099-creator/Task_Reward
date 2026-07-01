@@ -217,7 +217,7 @@ export default function AIAssistant() {
                 <Brain className="w-5 h-5 text-white animate-pulse" />
               </div>
               <div>
-                <h3 className="font-bold text-sm">TaskReward AI Copilot</h3>
+                <h3 className="font-bold text-sm">TalentFlow AI Copilot</h3>
                 <span className="text-[10px] text-indigo-200 font-bold uppercase tracking-wider">Workforce Intelligence</span>
               </div>
             </div>

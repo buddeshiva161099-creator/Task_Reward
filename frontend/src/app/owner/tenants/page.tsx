@@ -53,7 +53,7 @@ export default function TenantsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Tenants</h1>
-          <p className="text-sm text-slate-500 mt-1">{total} total companies using TaskReward.</p>
+          <p className="text-sm text-slate-500 mt-1">{total} total companies using TalentFlow.</p>
         </div>
         <Link
           href="/owner/tenants/new"
