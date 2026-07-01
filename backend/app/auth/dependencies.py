@@ -1,7 +1,7 @@
 """
 FastAPI dependencies for authentication and authorization.
 """
-from fastapi import Depends, HTTPException, status, Request
+from fastapi import Depends, HTTPException, status, Request, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.auth.jwt_handler import decode_access_token
 from app.models.user import User, UserRole
@@ -13,6 +13,7 @@ security = HTTPBearer()
 
 async def get_current_user(
     request: Request,
+    response: Response = None,
 ) -> User:
     """Extract and validate the current user from JWT token (via header or cookie) and verify token version."""
     token = None
@@ -52,6 +53,9 @@ async def get_current_user(
 
     user = await User.get(PydanticObjectId(user_id))
     if user is None:
+        if response:
+            response.delete_cookie("access_token")
+            response.delete_cookie("owner_access_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
