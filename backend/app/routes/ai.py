@@ -90,8 +90,8 @@ async def ask_ai_assistant(
 
 @router.get("/reports/export")
 async def export_ai_report(
-    report_type: str = Query("productivity", regex="^(productivity|payroll|team_performance|attendance|executive)$"),
-    report_format: str = Query("excel", regex="^(excel|html)$"),
+    report_type: str = Query("productivity", pattern="^(productivity|payroll|team_performance|attendance|executive)$"),
+    report_format: str = Query("excel", pattern="^(excel|html)$"),
     current_user: User = Depends(get_current_user),
     active_bu_id = Depends(get_active_business_unit_id),
 ):

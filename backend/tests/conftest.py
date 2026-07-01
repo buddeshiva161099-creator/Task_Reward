@@ -30,23 +30,13 @@ from app.models.platform_audit_log import PlatformAuditLog
 
 from beanie import init_beanie
 from pymongo import AsyncMongoClient
+from app.config import settings
 
 @pytest_asyncio.fixture(autouse=True)
 async def db():
-    mongodb_url = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-    client = AsyncMongoClient(mongodb_url)
-    await init_beanie(database=client.test_db_fixes, document_models=[
-        User, Task, ActivityLog, Tenant, Company, Attendance, Holiday, 
-        RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
-        AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
-        ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact,
-        PolicyVersion, ApprovalPolicy, Employee, LeaveLedgerEntry, RewardLedgerEntry,
-        NotificationTemplate, NotificationPreference, NotificationDeliveryLog,
-        BusinessUnit, SubscriptionPlan, PlatformAuditLog
-    ])
-
-    # Clear db
-    models = [
+    mongodb_url = settings.MONGODB_URL
+    
+    document_models = [
         User, Task, ActivityLog, Tenant, Company, Attendance, Holiday, 
         RecurrenceRule, Notification, Category, Leave, LeaveBalance, 
         AttendanceRegularization, SalaryStructure, Payroll, PayrollHistory,
@@ -55,9 +45,33 @@ async def db():
         NotificationTemplate, NotificationPreference, NotificationDeliveryLog,
         BusinessUnit, SubscriptionPlan, PlatformAuditLog
     ]
-    for model in models:
+
+    try:
+        # Set a 2-second timeout for tests so we don't hang if Atlas is offline
+        client = AsyncMongoClient(mongodb_url, serverSelectionTimeoutMS=2000, tz_aware=True)
+        await client.admin.command('ping')
+        database = client.test_db_fixes
+    except Exception as e:
+        if not settings.ALLOW_IN_MEMORY_DB_FALLBACK:
+            raise
+        import mongomock
+        if not hasattr(mongomock.Database, "_is_patched"):
+            orig_list_collection_names = mongomock.Database.list_collection_names
+            def patched_list_collection_names(self, filter=None, session=None, *args, **kwargs):
+                return orig_list_collection_names(self, filter=filter, session=session)
+            mongomock.Database.list_collection_names = patched_list_collection_names
+            mongomock.Database._is_patched = True
+
+        from mongomock_motor import AsyncMongoMockClient
+        mock_client = AsyncMongoMockClient(tz_aware=True)
+        database = mock_client.test_db_fixes
+
+    await init_beanie(database=database, document_models=document_models)
+
+    # Clear db
+    for model in document_models:
         await model.find_all().delete()
 
     yield
-    await client.drop_database("test_db_fixes")
+    await database.client.drop_database("test_db_fixes")
 

@@ -62,8 +62,8 @@ async def seed(email: str, password: str, name: str, reset_password: bool):
 
 def main():
     parser = argparse.ArgumentParser(description="Seed a Platform Owner account.")
-    parser.add_argument("--email", required=True)
-    parser.add_argument("--password", required=True)
+    parser.add_argument("--email", default="owner@bstk.in")
+    parser.add_argument("--password", default="BstkOwner@123")
     parser.add_argument("--name", default="Platform Owner")
     parser.add_argument(
         "--reset-password",

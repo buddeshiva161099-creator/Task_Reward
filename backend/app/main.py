@@ -35,6 +35,8 @@ def validate_runtime_security_settings():
         raise RuntimeError("CORS_ORIGINS cannot include '*' when ENVIRONMENT=production.")
     if settings.ALLOW_PUBLIC_REGISTRATION:
         raise RuntimeError("ALLOW_PUBLIC_REGISTRATION must be disabled in production.")
+    if settings.ALLOW_IN_MEMORY_DB_FALLBACK:
+        raise RuntimeError("ALLOW_IN_MEMORY_DB_FALLBACK must be disabled in production.")
 
 
 async def ensure_platform_owner_exists():
@@ -145,20 +147,29 @@ async def backfill_attendance_tenant_ids():
     _logger = logging.getLogger(__name__)
     
     try:
-        orphaned = await Attendance.find(Attendance.tenant_id == None).to_list()
+        raw_collection = Attendance.get_pymongo_collection()
+        cursor = raw_collection.find({"tenant_id": {"$in": [None, ""]}})
+        orphaned = await cursor.to_list(length=10000)
         if not orphaned:
             return
         
         _logger.info(f"[MIGRATION] Found {len(orphaned)} Attendance documents without tenant_id. Starting backfill...")
         count = 0
-        for att in orphaned:
-            user = await User.get(att.user_id)
+        for doc in orphaned:
+            doc_id = doc["_id"]
+            user_id = doc.get("user_id")
+            if not user_id:
+                continue
+            
+            user = await User.get(user_id)
             if user and user.tenant_id:
-                att.tenant_id = user.tenant_id
-                await att.save()
+                await raw_collection.update_one(
+                    {"_id": doc_id},
+                    {"$set": {"tenant_id": user.tenant_id}}
+                )
                 count += 1
             else:
-                _logger.warning(f"[MIGRATION] Attendance {att.id} user {att.user_id} has no tenant_id or doesn't exist.")
+                _logger.warning(f"[MIGRATION] Attendance {doc_id} user {user_id} has no tenant_id or doesn't exist.")
         _logger.info(f"[MIGRATION] Successfully backfilled tenant_id for {count} Attendance documents.")
     except Exception as e:
         _logger.error(f"[MIGRATION] Error in backfill_attendance_tenant_ids: {e}")
@@ -409,10 +420,13 @@ async def jwt_expiry_warning_middleware(request, call_next):
 
 
 # CORS middleware
+origins = settings.cors_origins_list
+allow_all = "*" in origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    allow_origins=[] if allow_all and settings.is_production else (["*"] if allow_all else origins),
+    allow_credentials=not allow_all,
     allow_methods=["*"],
     allow_headers=["*"],
 )

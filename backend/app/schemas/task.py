@@ -1,7 +1,7 @@
 """
 Task request/response schemas.
 """
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, ValidationInfo
 from typing import Optional, List
 from datetime import datetime
 
@@ -38,11 +38,12 @@ class CreateTaskRequest(BaseModel):
     attachments: Optional[List[dict]] = None
     voice_note: Optional[dict] = None
 
-    @validator("deadline")
-    def deadline_must_be_future(cls, v, values):
+    @field_validator("deadline")
+    @classmethod
+    def deadline_must_be_future(cls, v: Optional[datetime], info: ValidationInfo):
         """For recurring tasks, deadline must be provided and be in the future. Non‑recurring tasks may omit deadline."""
         from datetime import datetime, timezone
-        if values.get("is_recurrent"):
+        if info.data.get("is_recurrent"):
             if v is None:
                 raise ValueError("Deadline is required for recurring tasks")
             # Ensure v is timezone-aware for comparison (assume UTC if naive)
@@ -53,9 +54,10 @@ class CreateTaskRequest(BaseModel):
                 raise ValueError("Deadline must be a future date for recurring tasks")
         return v
 
-    @validator("recurrence")
-    def recurrence_required_if_recurrent(cls, v, values):
-        if values.get("is_recurrent") and v is None:
+    @field_validator("recurrence")
+    @classmethod
+    def recurrence_required_if_recurrent(cls, v, info: ValidationInfo):
+        if info.data.get("is_recurrent") and v is None:
             raise ValueError("Recurrence options must be specified for recurring tasks")
         return v
 

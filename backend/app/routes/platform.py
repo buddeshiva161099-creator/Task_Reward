@@ -407,7 +407,7 @@ async def list_tenant_admins(
     }
 
 
-@router.post("/tenants/{tenant_id}/admins/{admin_id}/reset-password")
+@router.post("/tenants/{tenant_id}/admins/{admin_id}/reset-password", dependencies=[Depends(platform_login_limiter)])
 async def reset_tenant_admin_password(
     tenant_id: str,
     admin_id: str,
@@ -415,7 +415,8 @@ async def reset_tenant_admin_password(
     response: Response,
     owner: User = Depends(require_platform_owner),
 ):
-    if settings.ENVIRONMENT == "production" and request.url.scheme != "https":
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if settings.ENVIRONMENT == "production" and scheme != "https":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="HTTPS required in production environment.",
@@ -470,7 +471,8 @@ async def onboard_tenant(
     body: OnboardTenantRequest,
     owner: User = Depends(require_platform_owner),
 ):
-    if settings.ENVIRONMENT == "production" and request.url.scheme != "https":
+    scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+    if settings.ENVIRONMENT == "production" and scheme != "https":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="HTTPS required in production environment.",

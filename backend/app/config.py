@@ -2,9 +2,11 @@
 Application configuration loaded from environment variables.
 """
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import List
+import urllib.parse
 
-INSECURE_JWT_SECRETS = {"change-this-secret", "your-super-secret-jwt-key-change-this", ""}
+INSECURE_JWT_SECRETS = {"change-this-secret", "your-super-secret-jwt-key-change-this", "", "secret_key"}
 
 
 class Settings(BaseSettings):
@@ -21,6 +23,32 @@ class Settings(BaseSettings):
     ALLOW_IN_MEMORY_DB_FALLBACK: bool = False
     MAX_UPLOAD_BYTES: int = 5 * 1024 * 1024
 
+    @field_validator("MONGODB_URL", mode="before")
+    @classmethod
+    def escape_mongodb_url(cls, v: str) -> str:
+        if not isinstance(v, str):
+            return v
+        if not v.startswith("mongodb://") and not v.startswith("mongodb+srv://"):
+            return v
+        try:
+            prefix, rest = v.split("://", 1)
+            if "/" in rest:
+                auth_host, path = rest.split("/", 1)
+                path = "/" + path
+            else:
+                auth_host, path = rest, ""
+            
+            if "@" in auth_host:
+                creds, host = auth_host.rsplit("@", 1)
+                if ":" in creds:
+                    user, password = creds.split(":", 1)
+                    safe_user = urllib.parse.quote_plus(urllib.parse.unquote(user))
+                    safe_pass = urllib.parse.quote_plus(urllib.parse.unquote(password))
+                    return f"{prefix}://{safe_user}:{safe_pass}@{host}{path}"
+        except Exception:
+            pass
+        return v
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
@@ -31,7 +59,11 @@ class Settings(BaseSettings):
 
     @property
     def uses_insecure_jwt_secret(self) -> bool:
-        return self.JWT_SECRET in INSECURE_JWT_SECRETS
+        return (
+            self.JWT_SECRET in INSECURE_JWT_SECRETS or 
+            len(self.JWT_SECRET) < 32 or 
+            self.JWT_SECRET.lower() in {"secret", "secret_key", "default", "jwt_secret", "key"}
+        )
 
     class Config:
         env_file = ".env"

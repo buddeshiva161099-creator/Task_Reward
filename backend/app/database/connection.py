@@ -32,6 +32,8 @@ from app.models.subscription_plan import SubscriptionPlan
 from app.models.platform_audit_log import PlatformAuditLog
 from app.models.business_unit import BusinessUnit
 from app.models.shift import Shift, ShiftAssignment
+import urllib.parse
+from motor.motor_asyncio import AsyncIOMotorClient
 
 
 async def auto_seed_if_needed():
@@ -45,15 +47,15 @@ async def auto_seed_if_needed():
         # Seed admin user
         admin_user = User(
             name="System Admin",
-            email="admin@tenant.com",
-            password_hash=hash_password("Admin@123"),
+            email="admin%40tenant.com",
+            password_hash=hash_password("Admin%40123"),
             role=UserRole.ADMIN,
         )
         await admin_user.insert()
         # Seed test employee user
         employee_user = User(
             name="Nishitha",
-            email="nishitha@vision.com",
+            email="nishitha%40vision.com",
             password_hash=hash_password("123456"),
             role=UserRole.EMPLOYEE,
         )
@@ -66,8 +68,9 @@ async def auto_seed_if_needed():
 async def init_db():
     """Initialize MongoDB connection and Beanie ODM."""
     try:
-        # Set a 2-second timeout for server selection to quickly detect if local mongo is down
-        client = AsyncMongoClient(settings.MONGODB_URL, serverSelectionTimeoutMS=2000, tz_aware=True)
+        # Use a longer server selection timeout in production or when fallback is disabled
+        timeout = 5000 if (settings.ALLOW_IN_MEMORY_DB_FALLBACK and not settings.is_production) else 30000
+        client = AsyncMongoClient(settings.MONGODB_URL, serverSelectionTimeoutMS=timeout, tz_aware=True)
         database = client[settings.DATABASE_NAME]
         
         # Force a connection check
