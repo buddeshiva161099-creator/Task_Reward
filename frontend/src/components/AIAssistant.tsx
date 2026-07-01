@@ -36,10 +36,29 @@ export default function AIAssistant() {
     const nextState = !isOpen;
     setIsOpen(nextState);
     if (nextState && messages.length === 0 && user) {
+      const isMgmt = ['admin', 'manager', 'hr_manager'].includes(user.role);
+      
+      let welcomeText = `Hello ${user.name}! I am your AI Workforce Copilot. Here is how I can assist you:\n\n`;
+      welcomeText += `📋 Query Information:\n`;
+      welcomeText += `  • Check active tasks ("Show my tasks")\n`;
+      welcomeText += `  • Check leaves & holidays ("Show leaves status")\n`;
+      welcomeText += `  • Check reward points ("What is my points balance?")\n`;
+      welcomeText += `  • Check shift roster timing ("What is my shift timing?")\n\n`;
+      
+      if (isMgmt) {
+        welcomeText += `🛠️ Administrative Actions:\n`;
+        welcomeText += `  • Create & assign tasks ("Create task for Shiva...")\n`;
+        welcomeText += `  • Update shift timings ("Update morning shift timing to 9 to 6")\n`;
+        welcomeText += `  • Assign roster shifts ("Assign morning shift to Shiva for next week")\n`;
+        welcomeText += `  • Approve & reject leaves ("Approve Shiva's leave request")\n\n`;
+      }
+      
+      welcomeText += `Ask me any question or click a quick action tag below!`;
+
       setMessages([
         {
           sender: 'ai',
-          text: `Hello ${user.name}! I am your AI Workforce Copilot. How can I assist you today? You can query your active tasks, check your shift schedules, inspect leaves, check your rewards balance, or ask me to assign tasks directly.`,
+          text: welcomeText,
           timestamp: new Date()
         }
       ]);
@@ -91,14 +110,30 @@ export default function AIAssistant() {
             actionCompletedMessage = "\n\n🤖 *AI Action Executed: Task successfully created and assigned!*";
           } else if (actionPayload.action === 'update_shift' && actionPayload.parameters) {
             const { shift_id, name, start_time, end_time, grace_period_minutes, color_code } = actionPayload.parameters;
+            
+            const sanitizeTime = (t: string) => {
+              if (!t) return "09:00";
+              const clean = t.trim();
+              const parts = clean.split(':');
+              if (parts.length === 2) {
+                const hh = parts[0].padStart(2, '0');
+                const mm = parts[1].padStart(2, '0');
+                return `${hh}:${mm}`;
+              }
+              return clean;
+            };
+
+            const cleanStartTime = sanitizeTime(start_time);
+            const cleanEndTime = sanitizeTime(end_time);
+
             await api.put(`/shifts/${shift_id}`, {
-              name,
-              start_time,
-              end_time,
-              grace_period_minutes,
-              color_code
+              name: name || "Morning Shift",
+              start_time: cleanStartTime,
+              end_time: cleanEndTime,
+              grace_period_minutes: (grace_period_minutes !== undefined && grace_period_minutes !== null) ? grace_period_minutes : 15,
+              color_code: color_code || "#3b82f6"
             });
-            actionCompletedMessage = `\n\n🤖 *AI Action Executed: Shift '${name}' timings successfully updated to ${start_time} - ${end_time}!*`;
+            actionCompletedMessage = `\n\n🤖 *AI Action Executed: Shift '${name || "Morning Shift"}' timings successfully updated to ${cleanStartTime} - ${cleanEndTime}!*`;
           } else if (actionPayload.action === 'assign_shift' && actionPayload.parameters) {
             const { user_id, shift_id, start_date, end_date } = actionPayload.parameters;
             await api.post('/shifts/assign', {
@@ -153,12 +188,20 @@ export default function AIAssistant() {
     }
   };
 
-  const suggestedTags = [
-    { label: 'My Active Tasks', query: 'Show my tasks' },
-    { label: 'My Reward Balance', query: 'What is my points balance?' },
-    { label: 'My Shift Timings', query: 'What is my shift roster timing?' },
-    { label: 'Leaves & Holidays', query: 'Show leaves status or holidays' },
-  ];
+  const isMgmt = user && ['admin', 'manager', 'hr_manager'].includes(user.role);
+  const suggestedTags = isMgmt
+    ? [
+        { label: 'My Active Tasks', query: 'Show my tasks' },
+        { label: 'Create Task', query: 'Create a high priority task for Shiva to check server logs' },
+        { label: 'Approve Leave', query: 'Approve Shiva\'s leave request' },
+        { label: 'Update Shift', query: 'Update morning shift timing to 9 AM to 6 PM' },
+      ]
+    : [
+        { label: 'My Active Tasks', query: 'Show my tasks' },
+        { label: 'My Reward Balance', query: 'What is my points balance?' },
+        { label: 'My Shift Timings', query: 'What is my shift roster timing?' },
+        { label: 'Leaves & Holidays', query: 'Show leaves status or holidays' },
+      ];
 
   if (!user) return null;
 

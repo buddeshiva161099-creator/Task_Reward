@@ -11,6 +11,8 @@ class RemarkEntry(BaseModel):
     user_name: str
     text: str
     timestamp: str
+    attachments: Optional[List[dict]] = None
+    voice_note: Optional[dict] = None
 
 
 class RecurrenceRuleSchema(BaseModel):
@@ -33,6 +35,8 @@ class CreateTaskRequest(BaseModel):
     for_all: bool = False
     recurrence: Optional[RecurrenceRuleSchema] = None
     category_ids: Optional[List[str]] = None
+    attachments: Optional[List[dict]] = None
+    voice_note: Optional[dict] = None
 
     @validator("deadline")
     def deadline_must_be_future(cls, v, values):
@@ -66,6 +70,10 @@ class UpdateTaskRequest(BaseModel):
     tenant_id: Optional[str] = None
     assigned_to: Optional[str] = None
     quality_multiplier: Optional[float] = None
+    status_attachments: Optional[List[dict]] = None
+    status_voice_note: Optional[dict] = None
+    remark_attachments: Optional[List[dict]] = None
+    remark_voice_note: Optional[dict] = None
 
 
 class TaskResponse(BaseModel):
@@ -87,6 +95,10 @@ class TaskResponse(BaseModel):
     company_name: Optional[str] = None  # legacy alias (now represents Tenant name for display)
     category_ids: List[str] = []
     category_names: List[str] = []
+    attachments: List[dict] = []
+    voice_note: Optional[dict] = None
+    completion_attachments: List[dict] = []
+    completion_voice_note: Optional[dict] = None
     remarks: List[RemarkEntry] = []
     created_at: str
 
@@ -114,9 +126,11 @@ class TaskResponse(BaseModel):
             company_name=tenant_name or task.company_name or "Personal / Internal",
             category_ids=[str(cid) for cid in (task.category_ids or [])],
             category_names=category_names if category_names is not None else (task.category_names or []),
+            attachments=task.attachments or [],
+            voice_note=task.voice_note,
+            completion_attachments=task.completion_attachments or [],
+            completion_voice_note=task.completion_voice_note,
             remarks=[RemarkEntry(**r) for r in (task.remarks or [])],
             created_at=to_utc_iso(task.created_at),
             is_recurring=bool(task.recurring_task_id),
         )
-
-

@@ -41,6 +41,7 @@ export default function TenantDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [revealedPassword, setRevealedPassword] = useState<{ adminEmail: string; password: string } | null>(null);
+  const [accessDaysInput, setAccessDaysInput] = useState<number | ''>('');
 
   const load = async () => {
     setIsLoading(true);
@@ -65,6 +66,16 @@ export default function TenantDetailPage() {
   useEffect(() => {
     if (params.id) load();
   }, [params.id]);
+
+  useEffect(() => {
+    if (tenant?.trial_ends_at) {
+      const diff = new Date(tenant.trial_ends_at).getTime() - new Date().getTime();
+      const days = Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+      setAccessDaysInput(days);
+    } else {
+      setAccessDaysInput('');
+    }
+  }, [tenant]);
 
   const showSuccess = (msg: string) => {
     setSuccess(msg);
@@ -104,6 +115,23 @@ export default function TenantDetailPage() {
     } catch (e: unknown) {
       const err = e as { response?: { data?: { detail?: string } } };
       showError(err.response?.data?.detail || 'Failed to change plan.');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const changeAccessDays = async (days: number) => {
+    if (days < 0) return;
+    setActionLoading('access-days');
+    try {
+      await ownerApi.patch(`/platform/tenants/${params.id}/access-days`, {
+        trial_days: days,
+      });
+      showSuccess(`Access period updated to ${days} days remaining.`);
+      await load();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { detail?: string } } };
+      showError(err.response?.data?.detail || 'Failed to update access duration.');
     } finally {
       setActionLoading(null);
     }
@@ -353,6 +381,87 @@ export default function TenantDetailPage() {
           >
             {actionLoading === 'plan' ? 'Updating…' : 'Update Plan'}
           </button>
+        </div>
+      </div>
+
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Clock className="w-4 h-4 text-slate-500" />
+          <h2 className="text-sm font-bold text-slate-900">Access Period / Trial Duration</h2>
+        </div>
+        <div className="space-y-4">
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+                Days of Access Remaining
+              </label>
+              <input
+                type="number"
+                min="0"
+                max="365"
+                value={accessDaysInput}
+                onChange={(e) => setAccessDaysInput(e.target.value === '' ? '' : parseInt(e.target.value) || 0)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-semibold text-slate-800"
+              />
+            </div>
+            <button
+              onClick={() => changeAccessDays(Number(accessDaysInput))}
+              disabled={actionLoading === 'access-days' || accessDaysInput === ''}
+              className="px-4 py-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold disabled:opacity-30 whitespace-nowrap"
+            >
+              {actionLoading === 'access-days' ? 'Updating…' : 'Set Days'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              onClick={() => {
+                const current = typeof accessDaysInput === 'number' ? accessDaysInput : 0;
+                const next = current + 7;
+                setAccessDaysInput(next);
+                changeAccessDays(next);
+              }}
+              disabled={actionLoading !== null}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+            >
+              + 7 Days
+            </button>
+            <button
+              onClick={() => {
+                const current = typeof accessDaysInput === 'number' ? accessDaysInput : 0;
+                const next = Math.max(0, current - 7);
+                setAccessDaysInput(next);
+                changeAccessDays(next);
+              }}
+              disabled={actionLoading !== null || (typeof accessDaysInput === 'number' && accessDaysInput <= 0)}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+            >
+              - 7 Days
+            </button>
+            <button
+              onClick={() => {
+                const current = typeof accessDaysInput === 'number' ? accessDaysInput : 0;
+                const next = current + 30;
+                setAccessDaysInput(next);
+                changeAccessDays(next);
+              }}
+              disabled={actionLoading !== null}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+            >
+              + 30 Days
+            </button>
+            <button
+              onClick={() => {
+                const current = typeof accessDaysInput === 'number' ? accessDaysInput : 0;
+                const next = Math.max(0, current - 30);
+                setAccessDaysInput(next);
+                changeAccessDays(next);
+              }}
+              disabled={actionLoading !== null || (typeof accessDaysInput === 'number' && accessDaysInput <= 0)}
+              className="px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold cursor-pointer"
+            >
+              - 30 Days
+            </button>
+          </div>
         </div>
       </div>
 

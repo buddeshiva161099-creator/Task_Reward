@@ -1,7 +1,8 @@
 """
 Task management routes - CRUD for tasks.
 """
-from fastapi import APIRouter, HTTPException, status, Depends, Query, Request
+from fastapi import APIRouter, HTTPException, status, Depends, Query, Request, UploadFile, File
+import os
 from app.schemas.task import CreateTaskRequest, UpdateTaskRequest, TaskResponse
 from app.services import task_service
 from app.auth.dependencies import get_current_user
@@ -122,6 +123,8 @@ async def create_task(
                 recurring_task_id=None,
                 category_ids=request.category_ids,
                 business_unit_id=resolved_bu,
+                attachments=request.attachments,
+                voice_note=request.voice_note,
             )
             created_tasks.append(task_instance)
             last_task = task_instance
@@ -409,6 +412,10 @@ async def update_task(
             tenant_id=request.tenant_id,
             assigned_to=request.assigned_to,
             quality_multiplier=request.quality_multiplier,
+            status_attachments=request.status_attachments,
+            status_voice_note=request.status_voice_note,
+            remark_attachments=request.remark_attachments,
+            remark_voice_note=request.remark_voice_note,
         )
     except PermissionError as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e))
@@ -683,3 +690,28 @@ async def delete_recurring_rule(
     await rule.save()
     await rule.delete()
     return {"message": "Recurring rule terminated successfully"}
+
+
+@router.post("/upload", status_code=status.HTTP_201_CREATED)
+async def upload_task_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Upload a file or voice note for tasks. Enforces tenant scope directory isolation."""
+    from app.utils.uploads import save_upload_file
+    
+    tenant_sub = f"tenant_{current_user.tenant_id}" if current_user.tenant_id else "global"
+    upload_dir = os.path.join("uploads", "tasks", tenant_sub)
+    
+    # Allow any file type (including zip, images, docs, pdfs, audio mp3/wav/ogg etc)
+    allowed_types = ["*"]
+    
+    stored_filename, file_size = await save_upload_file(file, upload_dir, allowed_types)
+    
+    return {
+        "filename": file.filename,
+        "stored_filename": stored_filename,
+        "file_size": file_size,
+        "content_type": file.content_type,
+        "url": f"/uploads/tasks/{tenant_sub}/{stored_filename}"
+    }

@@ -303,7 +303,7 @@ async def get_uploaded_file(
 ):
     """Securely serve uploaded identity documents and chat files, enforcing tenant isolation."""
     # 1. Validate file type
-    if file_type not in {"identity_docs", "chat", "announcements"}:
+    if file_type not in {"identity_docs", "chat", "announcements", "tasks"}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File type not found")
 
     # 2. Check tenant scoping / isolation

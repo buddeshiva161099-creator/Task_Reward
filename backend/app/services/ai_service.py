@@ -837,7 +837,7 @@ async def run_ai_copilot_assistant(
             retrieved_facts.append(f"Your recent points transaction history:\n- " + "\n- ".join(ledger_details))
 
     # 10. NEW DOMAIN: Shifts & Schedule / Roster
-    if "shift" in message_lc or "roster" in message_lc or "schedule" in message_lc or "timing" in message_lc or "assign" in message_lc:
+    if any(k in message_lc for k in ["shift", "roster", "schedule", "timing", "assign", "hour", "time", "work"]):
         from app.models.shift import Shift, ShiftAssignment
         all_shifts = await Shift.find(Shift.tenant_id == cid).to_list()
         shifts_list = [f"Shift Template Name: '{s.name}' (Shift ID: {str(s.id)}, Hours: {s.start_time}-{s.end_time}, Grace: {s.grace_period_minutes} mins, Color: {s.color_code})" for s in all_shifts]

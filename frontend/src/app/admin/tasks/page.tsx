@@ -9,9 +9,11 @@ import { formatDateTime, getStatusColor, getStatusLabel, getPriorityColor, timeA
 import {
   ClipboardList, Plus, Filter, X, CheckCircle2, Play, Trash2, Award,
   MessageSquarePlus, Building2, Send, ChevronUp, Search, Pencil, Eye,
-  RefreshCcw, CalendarDays, Users2, Building, ChevronDown, Check, Tag, Clock
+  RefreshCcw, CalendarDays, Users2, Building, ChevronDown, Check, Tag, Clock,
+  Paperclip, Mic, Download
 } from 'lucide-react';
 import { TableSkeleton } from '@/components/SkeletonLoaders';
+import TaskAttachmentManager from '@/components/TaskAttachmentManager';
 
 interface MultiSelectProps {
   label: string;
@@ -230,6 +232,17 @@ export default function AdminTasksPage() {
   const [remarkText, setRemarkText] = useState('');
   const [submittingRemark, setSubmittingRemark] = useState(false);
 
+  // Attachment states
+  const [creationFiles, setCreationFiles] = useState<any[]>([]);
+  const [creationVoiceNote, setCreationVoiceNote] = useState<any | null>(null);
+  const [completionFiles, setCompletionFiles] = useState<any[]>([]);
+  const [completionVoiceNote, setCompletionVoiceNote] = useState<any | null>(null);
+  const [remarkFiles, setRemarkFiles] = useState<any[]>([]);
+  const [remarkVoiceNote, setRemarkVoiceNote] = useState<any | null>(null);
+  const [editFiles, setEditFiles] = useState<any[]>([]);
+  const [editVoiceNote, setEditVoiceNote] = useState<any | null>(null);
+  const [expandedAttachments, setExpandedAttachments] = useState<Record<string, boolean>>({});
+
   // Complete confirmation modal
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [confirmingTask, setConfirmingTask] = useState<Task | null>(null);
@@ -330,10 +343,14 @@ export default function AdminTasksPage() {
         category_ids: newTask.category_ids,
         for_all: newTask.for_all,
         is_recurrent: newTask.is_recurrent,
-        recurrence: newTask.is_recurrent ? recurrence : undefined
+        recurrence: newTask.is_recurrent ? recurrence : undefined,
+        attachments: creationFiles,
+        voice_note: creationVoiceNote
       };
       await api.post('/tasks', payload);
       setShowCreateModal(false);
+      setCreationFiles([]);
+      setCreationVoiceNote(null);
       setNewTask({
         work_description: '',
         assigned_to_list: [],
@@ -371,6 +388,8 @@ export default function AdminTasksPage() {
       ...task,
       deadline: localDateTime
     });
+    setEditFiles(task.attachments || []);
+    setEditVoiceNote(task.voice_note || null);
     setShowEditModal(true);
   };
 
@@ -392,10 +411,14 @@ export default function AdminTasksPage() {
         company_id: editingTask.company_id || undefined,
         assigned_to: editingTask.assigned_to,
         category_ids: editingTask.category_ids,
+        attachments: editFiles,
+        voice_note: editVoiceNote,
       };
       await api.put(`/tasks/${editingTask.id}`, payload);
       setShowEditModal(false);
       setEditingTask(null);
+      setEditFiles([]);
+      setEditVoiceNote(null);
       fetchTasks();
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { detail?: string } } };
@@ -426,7 +449,9 @@ export default function AdminTasksPage() {
     try {
       const payload: any = {
         status: 'completed',
-        quality_multiplier: qualityMultiplier
+        quality_multiplier: qualityMultiplier,
+        status_attachments: completionFiles,
+        status_voice_note: completionVoiceNote
       };
       if (completionRemark.trim()) {
         payload.remarks = completionRemark.trim();
@@ -436,6 +461,8 @@ export default function AdminTasksPage() {
       setConfirmingTask(null);
       setCompletionRemark('');
       setQualityMultiplier(1.0);
+      setCompletionFiles([]);
+      setCompletionVoiceNote(null);
       fetchTasks();
     } catch (err) {
       console.error('Failed to complete task:', err);
@@ -456,8 +483,14 @@ export default function AdminTasksPage() {
     if (!remarkText.trim()) return;
     setSubmittingRemark(true);
     try {
-      await api.put(`/tasks/${taskId}`, { remarks: remarkText.trim() });
+      await api.put(`/tasks/${taskId}`, { 
+        remarks: remarkText.trim(),
+        remark_attachments: remarkFiles,
+        remark_voice_note: remarkVoiceNote
+      });
       setRemarkText('');
+      setRemarkFiles([]);
+      setRemarkVoiceNote(null);
       fetchTasks();
     } catch (err) {
       console.error('Failed to add remark:', err);
@@ -752,7 +785,10 @@ export default function AdminTasksPage() {
                         </button>
                       )}
                       <button
-                        onClick={() => setExpandedTask(expandedTask === task.id ? null : task.id)}
+                        onClick={() => {
+                          setExpandedAttachments(prev => ({ ...prev, [task.id]: false }));
+                          setExpandedTask(expandedTask === task.id ? null : task.id);
+                        }}
                         className="btn btn-ghost text-xs p-1.5 relative"
                         title="Remarks"
                       >
@@ -777,13 +813,74 @@ export default function AdminTasksPage() {
                       >
                         <Trash2 className="w-3.5 h-3.5 text-red-400" />
                       </button>
+                      {task.is_recurring && (
+                        <span className="inline-flex items-center justify-center w-7 h-7 text-amber-500 font-bold" title="Created via Recurrent Rule">
+                          🔄
+                        </span>
+                      )}
+                      {((task.attachments && task.attachments.length > 0) || task.voice_note || (task.completion_attachments && task.completion_attachments.length > 0) || task.completion_voice_note) && (
+                        <button
+                          onClick={() => {
+                            setExpandedTask(null);
+                            setExpandedAttachments(prev => ({ ...prev, [task.id]: !prev[task.id] }));
+                          }}
+                          className={`btn btn-ghost text-xs p-1.5 rounded-lg transition-colors ${expandedAttachments[task.id] ? 'bg-indigo-50 border border-indigo-200' : ''}`}
+                          title="View Attachments"
+                        >
+                          <Paperclip className={`w-3.5 h-3.5 ${expandedAttachments[task.id] ? 'text-indigo-600' : 'text-indigo-400 hover:text-indigo-600'}`} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
+                {/* Expanded Attachments Row */}
+                {expandedAttachments[task.id] && (
+                  <tr key={`${task.id}-attachments`}>
+                    <td colSpan={9} className="!p-0 border-none">
+                      <div className="bg-slate-50/80 p-6 border-y border-slate-100 shadow-inner">
+                        <div className="flex items-center gap-2 mb-4">
+                          <Paperclip className="w-4 h-4 text-indigo-600" />
+                          <h4 className="text-sm font-bold text-slate-800">Task Attachments & Voice Notes</h4>
+                          <button
+                            onClick={() => setExpandedAttachments(prev => ({ ...prev, [task.id]: false }))}
+                            className="ml-auto btn btn-ghost text-xs p-1"
+                          >
+                            <X className="w-4 h-4 text-slate-400" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
+                          {/* Explanatory Assets */}
+                          <div>
+                            <h5 className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Files Attached During Creation</h5>
+                            <TaskAttachmentManager
+                              readOnly
+                              initialFiles={task.attachments}
+                              initialVoiceNote={task.voice_note}
+                            />
+                          </div>
+
+                          {/* Completion Proof Assets */}
+                          {((task.completion_attachments && task.completion_attachments.length > 0) || task.completion_voice_note) && (
+                            <div>
+                              <h5 className="text-xs font-bold text-slate-500 mb-2 uppercase tracking-wide">Files Attached During Completion</h5>
+                              <TaskAttachmentManager
+                                readOnly
+                                initialFiles={task.completion_attachments}
+                                initialVoiceNote={task.completion_voice_note}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
                 {/* Expanded Remarks Row */}
                 {expandedTask === task.id && (
                   <tr key={`${task.id}-remarks`}>
-                    <td colSpan={8} className="!p-0 border-none">
+                    <td colSpan={9} className="!p-0 border-none">
                       <div className="bg-slate-50/80 p-6 border-y border-slate-100 shadow-inner">
                         <div className="flex items-center gap-2 mb-4">
                           <MessageSquarePlus className="w-4 h-4 text-purple-600" />
@@ -808,12 +905,32 @@ export default function AdminTasksPage() {
                                   </div>
                                 </div>
                                 <p className="text-sm text-slate-700 leading-relaxed">{r.text}</p>
+                                {(r.attachments?.length > 0 || r.voice_note) && (
+                                  <div className="mt-3 pt-2.5 border-t border-slate-55">
+                                    <TaskAttachmentManager
+                                      readOnly
+                                      initialFiles={r.attachments}
+                                      initialVoiceNote={r.voice_note}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
                         ) : (
                           <div className="text-center py-6 border-2 border-dashed border-slate-200 rounded-xl mb-4">
                             <p className="text-xs text-slate-400 font-medium italic text-muted-foreground">No remarks found for this work item.</p>
+                          </div>
+                        )}
+                        {/* Add remark files/audio */}
+                        {expandedTask === task.id && (
+                          <div className="mb-3">
+                            <TaskAttachmentManager
+                              onFilesChanged={setRemarkFiles}
+                              onVoiceNoteChanged={setRemarkVoiceNote}
+                              initialFiles={remarkFiles}
+                              initialVoiceNote={remarkVoiceNote}
+                            />
                           </div>
                         )}
                         {/* Add remark */}
@@ -1320,6 +1437,17 @@ export default function AdminTasksPage() {
                 )}
               </div>
 
+              {/* Attachments Section */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1 uppercase tracking-wide">Attachments & Explanatory Voice Note</label>
+                <TaskAttachmentManager
+                  onFilesChanged={setCreationFiles}
+                  onVoiceNoteChanged={setCreationVoiceNote}
+                  initialFiles={creationFiles}
+                  initialVoiceNote={creationVoiceNote}
+                />
+              </div>
+
               <div className="flex gap-4 pt-4">
                 <button type="button" onClick={() => setShowCreateModal(false)} className="btn btn-secondary flex-1 h-12 rounded-xl">
                   Cancel
@@ -1452,6 +1580,17 @@ export default function AdminTasksPage() {
                 />
               </div>
 
+              {/* Attachments Section */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1 uppercase tracking-wide">Modify Attachments & Voice Note</label>
+                <TaskAttachmentManager
+                  onFilesChanged={setEditFiles}
+                  onVoiceNoteChanged={setEditVoiceNote}
+                  initialFiles={editFiles}
+                  initialVoiceNote={editVoiceNote}
+                />
+              </div>
+
               <div className="flex gap-4 pt-4">
                 <button type="button" onClick={() => setShowEditModal(false)} className="btn btn-secondary flex-1 h-12 rounded-xl border-slate-200">
                   Cancel
@@ -1500,6 +1639,30 @@ export default function AdminTasksPage() {
                   <p className="text-base text-slate-700 leading-relaxed whitespace-pre-wrap">{viewingTask.work_description}</p>
                 </div>
               </div>
+
+              {/* Task Creation Attachments */}
+              {(viewingTask.attachments?.length > 0 || viewingTask.voice_note) && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Files Attached During Task Creation</label>
+                  <TaskAttachmentManager
+                    readOnly
+                    initialFiles={viewingTask.attachments}
+                    initialVoiceNote={viewingTask.voice_note}
+                  />
+                </div>
+              )}
+
+              {/* Task Completion Proof Attachments */}
+              {(viewingTask.completion_attachments?.length > 0 || viewingTask.completion_voice_note) && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] mb-2">Files Attached During Task Completion</label>
+                  <TaskAttachmentManager
+                    readOnly
+                    initialFiles={viewingTask.completion_attachments}
+                    initialVoiceNote={viewingTask.completion_voice_note}
+                  />
+                </div>
+              )}
 
               {/* Grid info */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -1647,6 +1810,17 @@ export default function AdminTasksPage() {
                   onChange={(e) => setCompletionRemark(e.target.value)}
                   className="input min-h-20 resize-none p-3 text-sm"
                   placeholder="Any final notes about the completion..."
+                />
+              </div>
+
+              {/* Completion Attachments */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1 uppercase tracking-wide">Attach Completion Proof & Voice Note</label>
+                <TaskAttachmentManager
+                  onFilesChanged={setCompletionFiles}
+                  onVoiceNoteChanged={setCompletionVoiceNote}
+                  initialFiles={completionFiles}
+                  initialVoiceNote={completionVoiceNote}
                 />
               </div>
 

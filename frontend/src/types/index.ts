@@ -45,6 +45,12 @@ export interface Task {
   category_ids: string[];
   category_names: string[];
   created_at: string;
+  recurring_task_id?: string | null;
+  attachments?: any[];
+  voice_note?: any | null;
+  completion_attachments?: any[];
+  completion_voice_note?: any | null;
+  is_recurring?: boolean;
 }
 
 export interface Category {

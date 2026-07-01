@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn, formatDateTime, getStatusColor, getStatusLabel, getPriorityColor, timeAgo, formatPreciseDateTime } from '@/lib/utils';
 import { CardSkeleton } from '@/components/SkeletonLoaders';
+import TaskAttachmentManager from '@/components/TaskAttachmentManager';
 
 interface MultiSelectProps {
   label: string;
@@ -131,6 +132,16 @@ export default function EmployeeTasksPage() {
   const [remarkText, setRemarkText] = useState('');
   const [submittingRemark, setSubmittingRemark] = useState(false);
 
+  // Attachment states
+  const [creationFiles, setCreationFiles] = useState<any[]>([]);
+  const [creationVoiceNote, setCreationVoiceNote] = useState<any | null>(null);
+  const [completionFiles, setCompletionFiles] = useState<any[]>([]);
+  const [completionVoiceNote, setCompletionVoiceNote] = useState<any | null>(null);
+  const [remarkFiles, setRemarkFiles] = useState<any[]>([]);
+  const [remarkVoiceNote, setRemarkVoiceNote] = useState<any | null>(null);
+  const [editFiles, setEditFiles] = useState<any[]>([]);
+  const [editVoiceNote, setEditVoiceNote] = useState<any | null>(null);
+
   // Edit modal
   const [showEditModal, setShowEditModal] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -193,9 +204,13 @@ export default function EmployeeTasksPage() {
         category_ids: newTask.category_ids.length > 0 ? newTask.category_ids : undefined,
         is_recurrent: newTask.is_recurrent,
         recurrence: newTask.is_recurrent ? recurrence : undefined,
+        attachments: creationFiles,
+        voice_note: creationVoiceNote,
       };
       await api.post('/tasks', payload);
       setShowCreateModal(false);
+      setCreationFiles([]);
+      setCreationVoiceNote(null);
       setNewTask({ work_description: '', priority: 'medium', deadline: '', company_id_list: [], category_ids: [], is_recurrent: false });
       fetchTasks();
     } catch (err: unknown) {
@@ -224,18 +239,17 @@ export default function EmployeeTasksPage() {
   const confirmCompletion = async () => {
     if (!confirmingTask || !isConfirmed) return;
     try {
-      // If there's a completion remark, send it first or along with status
-      if (completionRemark.trim()) {
-        await api.put(`/tasks/${confirmingTask.id}`, {
-          status: 'completed',
-          remarks: completionRemark.trim()
-        });
-      } else {
-        await handleStatusUpdate(confirmingTask.id, 'completed');
-      }
+      await api.put(`/tasks/${confirmingTask.id}`, {
+        status: 'completed',
+        remarks: completionRemark.trim() || undefined,
+        status_attachments: completionFiles,
+        status_voice_note: completionVoiceNote
+      });
       setShowCompleteModal(false);
       setConfirmingTask(null);
       setCompletionRemark('');
+      setCompletionFiles([]);
+      setCompletionVoiceNote(null);
       fetchTasks();
     } catch (err) {
       console.error('Failed to complete task:', err);
@@ -252,6 +266,8 @@ export default function EmployeeTasksPage() {
       ...task,
       deadline: localDateTime
     });
+    setEditFiles(task.attachments || []);
+    setEditVoiceNote(task.voice_note || null);
     setShowEditModal(true);
   };
 
@@ -267,10 +283,14 @@ export default function EmployeeTasksPage() {
         deadline: new Date(editingTask.deadline).toISOString(),
         company_id: editingTask.company_id || undefined,
         category_ids: editingTask.category_ids,
+        attachments: editFiles,
+        voice_note: editVoiceNote,
       };
       await api.put(`/tasks/${editingTask.id}`, payload);
       setShowEditModal(false);
       setEditingTask(null);
+      setEditFiles([]);
+      setEditVoiceNote(null);
       fetchTasks();
     } catch (err: unknown) {
       const axiosError = err as { response?: { data?: { detail?: string } } };
@@ -285,8 +305,14 @@ export default function EmployeeTasksPage() {
     if (!remarkText.trim()) return;
     setSubmittingRemark(true);
     try {
-      await api.put(`/tasks/${taskId}`, { remarks: remarkText.trim() });
+      await api.put(`/tasks/${taskId}`, { 
+        remarks: remarkText.trim(),
+        remark_attachments: remarkFiles,
+        remark_voice_note: remarkVoiceNote
+      });
       setRemarkText('');
+      setRemarkFiles([]);
+      setRemarkVoiceNote(null);
       fetchTasks();
     } catch (err) {
       console.error('Failed to add remark:', err);
@@ -423,8 +449,41 @@ export default function EmployeeTasksPage() {
                           <Tag className="w-3 h-3" /> {cat}
                         </span>
                       ))}
+                      {task.is_recurring && (
+                        <span className="badge bg-amber-50 text-amber-600 border-amber-100 flex items-center gap-1">
+                          🔄 Recurrent
+                        </span>
+                      )}
+                      {((task.attachments && task.attachments.length > 0) || task.voice_note) && (
+                        <span className="badge bg-indigo-50 text-indigo-600 border-indigo-100 flex items-center gap-1">
+                          📎 Attachments
+                        </span>
+                      )}
                     </div>
                     <p className="text-base font-medium text-slate-800 leading-relaxed mb-3">{task.work_description}</p>
+
+                    {/* Task Creation Attachments */}
+                    {(task.attachments?.length > 0 || task.voice_note) && (
+                      <div className="mb-4">
+                        <TaskAttachmentManager
+                          readOnly
+                          initialFiles={task.attachments}
+                          initialVoiceNote={task.voice_note}
+                        />
+                      </div>
+                    )}
+
+                    {/* Task Completion Attachments */}
+                    {(task.status === 'completed' || task.status === 'completed_late') && (task.completion_attachments?.length > 0 || task.completion_voice_note) && (
+                      <div className="mb-4">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1">Completion Proof & Voice Note</p>
+                        <TaskAttachmentManager
+                          readOnly
+                          initialFiles={task.completion_attachments}
+                          initialVoiceNote={task.completion_voice_note}
+                        />
+                      </div>
+                    )}
 
                     <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium">
                       <span className={`capitalize ${getPriorityColor(task.priority || 'medium')}`}>
@@ -545,12 +604,32 @@ export default function EmployeeTasksPage() {
                             </div>
                           </div>
                           <p className="text-sm text-slate-700 leading-relaxed">{r.text}</p>
+                          {(r.attachments?.length > 0 || r.voice_note) && (
+                            <div className="mt-3 pt-2.5 border-t border-slate-50">
+                              <TaskAttachmentManager
+                                readOnly
+                                initialFiles={r.attachments}
+                                initialVoiceNote={r.voice_note}
+                              />
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="text-center py-6 border-2 border-dashed border-slate-200 rounded-xl mb-4">
                       <p className="text-xs text-slate-400 font-medium italic">No remarks yet.</p>
+                    </div>
+                  )}
+                  {/* Add remark files/audio */}
+                  {expandedTask === task.id && (
+                    <div className="mb-3">
+                      <TaskAttachmentManager
+                        onFilesChanged={setRemarkFiles}
+                        onVoiceNoteChanged={setRemarkVoiceNote}
+                        initialFiles={remarkFiles}
+                        initialVoiceNote={remarkVoiceNote}
+                      />
                     </div>
                   )}
                   {/* Add remark */}
@@ -916,6 +995,17 @@ export default function EmployeeTasksPage() {
                 )}
               </div>
 
+              {/* Attachments Section */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1 uppercase tracking-wide">Attachments & Explanatory Voice Note</label>
+                <TaskAttachmentManager
+                  onFilesChanged={setCreationFiles}
+                  onVoiceNoteChanged={setCreationVoiceNote}
+                  initialFiles={creationFiles}
+                  initialVoiceNote={creationVoiceNote}
+                />
+              </div>
+
               <div className="flex gap-4 pt-4">
                 <button type="button" onClick={() => setShowCreateModal(false)} className="btn btn-secondary flex-1 h-12 rounded-xl">Cancel</button>
                 <button type="submit" disabled={creating} className="btn btn-primary flex-1 h-12 rounded-xl shadow-xl shadow-indigo-100">
@@ -982,6 +1072,17 @@ export default function EmployeeTasksPage() {
                   onChange={(e) => setCompletionRemark(e.target.value)}
                   className="input min-h-20 resize-none p-3 text-sm"
                   placeholder="Any final notes about the completion..."
+                />
+              </div>
+
+              {/* Completion Attachments */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1 uppercase tracking-wide">Attach Completion Proof & Voice Note</label>
+                <TaskAttachmentManager
+                  onFilesChanged={setCompletionFiles}
+                  onVoiceNoteChanged={setCompletionVoiceNote}
+                  initialFiles={completionFiles}
+                  initialVoiceNote={completionVoiceNote}
                 />
               </div>
 
@@ -1094,6 +1195,17 @@ export default function EmployeeTasksPage() {
                   selectedIds={editingTask.category_ids || []}
                   onChange={(ids) => setEditingTask({ ...editingTask, category_ids: ids })}
                   placeholder="Select categories..."
+                />
+              </div>
+
+              {/* Attachments Section */}
+              <div className="space-y-2">
+                <label className="block text-sm font-bold text-slate-700 mb-1 uppercase tracking-wide">Modify Attachments & Voice Note</label>
+                <TaskAttachmentManager
+                  onFilesChanged={setEditFiles}
+                  onVoiceNoteChanged={setEditVoiceNote}
+                  initialFiles={editFiles}
+                  initialVoiceNote={editVoiceNote}
                 />
               </div>
 

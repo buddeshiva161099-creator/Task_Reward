@@ -94,7 +94,8 @@ async def save_upload_file(
     allowed_content_types: Iterable[str],
 ) -> tuple[str, int]:
     """Validate and persist an UploadFile with a safe generated filename."""
-    validate_upload_metadata(file, allowed_content_types)
+    if "*" not in allowed_content_types:
+        validate_upload_metadata(file, allowed_content_types)
 
     destination_dir = Path(upload_dir).resolve()
     destination_dir.mkdir(parents=True, exist_ok=True)
@@ -137,6 +138,9 @@ async def save_upload_file(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Uploaded file is empty.",
         )
+
+    if "*" in allowed_content_types:
+        return stored_filename, bytes_written
 
     # Server-side content-type sniff: client-supplied Content-Type headers are
     # untrusted, so verify the file's magic bytes match the declared type.

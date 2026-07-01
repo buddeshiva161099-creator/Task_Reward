@@ -25,6 +25,8 @@ async def create_task(
     business_unit_id: Optional[str] = None,
     recurring_task_id: Optional[PydanticObjectId] = None,
     category_ids: Optional[List[str]] = None,
+    attachments: Optional[List[dict]] = None,
+    voice_note: Optional[dict] = None,
 ) -> Task:
     """Create a new task.
 
@@ -86,6 +88,8 @@ async def create_task(
         category_ids=resolved_category_ids,
         category_names=resolved_category_names,
         recurring_task_id=recurring_task_id,
+        attachments=attachments or [],
+        voice_note=voice_note,
     )
     await task.insert()
 
@@ -218,8 +222,12 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
     if not is_admin and str(task.assigned_to) != user_id:
         raise PermissionError("Cannot update tasks assigned to other users")
 
-    # Handle remarks separately — they are appended, not replaced
+    # Handle remarks and attachments separately
     remark_text = kwargs.pop("remarks", None)
+    status_attachments = kwargs.pop("status_attachments", None)
+    status_voice_note = kwargs.pop("status_voice_note", None)
+    remark_attachments = kwargs.pop("remark_attachments", None)
+    remark_voice_note = kwargs.pop("remark_voice_note", None)
 
     update_data = {}
     for key, value in kwargs.items():
@@ -259,6 +267,8 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
             "user_name": user.name if user else "Unknown",
             "text": remark_text,
             "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "attachments": remark_attachments or [],
+            "voice_note": remark_voice_note,
         }
         current_remarks = task.remarks or []
         current_remarks.append(new_remark)
@@ -273,6 +283,11 @@ async def update_task(task_id: str, user_id: str, is_admin: bool, **kwargs) -> O
         # If past deadline, set status to COMPLETED_LATE
         if task.deadline < now:
             update_data["status"] = TaskStatus.COMPLETED_LATE
+
+        if status_attachments is not None:
+            update_data["completion_attachments"] = status_attachments
+        if status_voice_note is not None:
+            update_data["completion_voice_note"] = status_voice_note
 
     from datetime import timezone
     update_data["updated_at"] = datetime.now(timezone.utc)

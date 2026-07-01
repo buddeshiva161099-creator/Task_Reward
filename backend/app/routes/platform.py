@@ -70,6 +70,10 @@ class UpdateTenantPlanRequest(BaseModel):
     trial_days: Optional[int] = Field(default=None, ge=0, le=180)
 
 
+class UpdateTenantAccessDaysRequest(BaseModel):
+    trial_days: int = Field(..., ge=0)
+
+
 class CreatePlanRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     code: str = Field(..., min_length=1, max_length=50)
@@ -626,6 +630,47 @@ async def update_tenant_plan(
     )
 
     return _tenant_summary(tenant, plan.code)
+
+
+@router.patch("/tenants/{tenant_id}/access-days")
+async def update_tenant_access_days(
+    tenant_id: str,
+    request: Request,
+    body: UpdateTenantAccessDaysRequest,
+    owner: User = Depends(require_platform_owner),
+):
+    try:
+        oid = PydanticObjectId(tenant_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid tenant id")
+    tenant = await Tenant.get(oid)
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    before = {
+        "trial_ends_at": tenant.trial_ends_at.isoformat() if tenant.trial_ends_at else None,
+    }
+
+    new_expiry = datetime.now(timezone.utc) + timedelta(days=body.trial_days)
+    await tenant.set({"trial_ends_at": new_expiry})
+    tenant = await Tenant.get(oid)
+
+    await PlatformAuditService.log(
+        actor=owner,
+        action="tenant.access_days.changed",
+        entity_type="tenant",
+        entity_id=tenant.id,
+        tenant_id=tenant.id,
+        description=f"Access days changed to {body.trial_days} days remaining",
+        before_state=before,
+        after_state={"trial_ends_at": new_expiry.isoformat()},
+        ip_address=request.client.host,
+        user_agent=request.headers.get("user-agent"),
+    )
+
+    plan = await SubscriptionPlan.get(tenant.subscription_plan_id)
+    plan_code = plan.code if plan else "unknown"
+    return _tenant_summary(tenant, plan_code)
 
 
 # ---------- Plans ----------

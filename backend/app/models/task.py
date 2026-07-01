@@ -54,7 +54,11 @@ class Task(Document):
     company_name: Optional[str] = None
     category_ids: List[PydanticObjectId] = Field(default_factory=list)
     category_names: List[str] = Field(default_factory=list)
-    remarks: List[dict] = Field(default_factory=list)  # [{"user_id": str, "user_name": str, "text": str, "timestamp": str}]
+    attachments: List[dict] = Field(default_factory=list)  # [{"filename": str, "stored_filename": str, "file_size": int, "uploaded_at": str}]
+    voice_note: Optional[dict] = None  # {"stored_filename": str}
+    completion_attachments: List[dict] = Field(default_factory=list)  # [{"filename": str, "stored_filename": str, "file_size": int, "uploaded_at": str}]
+    completion_voice_note: Optional[dict] = None  # {"stored_filename": str}
+    remarks: List[dict] = Field(default_factory=list)  # [{"user_id": str, "user_name": str, "text": str, "timestamp": str, "attachments": List[dict], "voice_note": dict}]
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
     recurring_task_id: Optional[PydanticObjectId] = None
