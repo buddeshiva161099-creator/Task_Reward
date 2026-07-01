@@ -529,25 +529,22 @@ async def list_recurring_rules(
     
     tenant_cid = require_tenant_id(current_user)
     
-    if current_user.role == UserRole.ADMIN:
-        rules = await RecurrenceRule.find(RecurrenceRule.status != "terminated").to_list()
-    else:
-        tenant_users = await User.find(User.tenant_id == tenant_cid).to_list()
-        tenant_user_ids = [u.id for u in tenant_users]
-        
-        rules = await RecurrenceRule.find(
-            RecurrenceRule.status != "terminated",
-            Or(
-                In(RecurrenceRule.created_by, tenant_user_ids),
-                In(tenant_cid, RecurrenceRule.company_ids)
-            )
-        ).to_list()
-        
-        if current_user.role == UserRole.EMPLOYEE:
-            rules = [
-                r for r in rules 
-                if r.created_by == current_user.id or current_user.id in r.assigned_to_list
-            ]
+    tenant_users = await User.find(User.tenant_id == tenant_cid).to_list()
+    tenant_user_ids = [u.id for u in tenant_users]
+    
+    rules = await RecurrenceRule.find(
+        RecurrenceRule.status != "terminated",
+        Or(
+            In(RecurrenceRule.created_by, tenant_user_ids),
+            RecurrenceRule.company_ids == tenant_cid
+        )
+    ).to_list()
+    
+    if current_user.role == UserRole.EMPLOYEE:
+        rules = [
+            r for r in rules 
+            if r.created_by == current_user.id or current_user.id in r.assigned_to_list
+        ]
             
     result = []
     for r in rules:
@@ -567,6 +564,7 @@ async def list_recurring_rules(
             "weekdays": r.weekdays,
             "month_days": r.month_days,
             "start_date": r.start_date.isoformat() if r.start_date else None,
+            "created_at": r.created_at.isoformat() if getattr(r, "created_at", None) else (r.start_date.isoformat() if r.start_date else None),
             "end_type": r.end_type.value if hasattr(r.end_type, "value") else str(r.end_type),
             "end_date": r.end_date.isoformat() if r.end_date else None,
             "occurrences": r.occurrences,
@@ -589,10 +587,17 @@ async def pause_recurring_rule(
 ):
     from app.models.recurring_task import RecurrenceRule
     from datetime import datetime, timezone, timedelta
+    from app.auth.tenant_scope import require_tenant_id
     
     rule = await RecurrenceRule.get(PydanticObjectId(rule_id))
     if not rule:
         raise HTTPException(status_code=404, detail="Recurring rule not found")
+        
+    tenant_cid = require_tenant_id(current_user)
+    creator = await User.get(rule.created_by)
+    is_same_tenant = (creator and creator.tenant_id == tenant_cid) or (tenant_cid in rule.company_ids)
+    if not is_same_tenant:
+        raise HTTPException(status_code=403, detail="Access denied. You cannot modify rules for another tenant.")
         
     if current_user.role != UserRole.ADMIN and rule.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="You do not have permission to modify this rule")
@@ -620,10 +625,17 @@ async def resume_recurring_rule(
 ):
     from app.models.recurring_task import RecurrenceRule
     from datetime import datetime, timezone
+    from app.auth.tenant_scope import require_tenant_id
     
     rule = await RecurrenceRule.get(PydanticObjectId(rule_id))
     if not rule:
         raise HTTPException(status_code=404, detail="Recurring rule not found")
+        
+    tenant_cid = require_tenant_id(current_user)
+    creator = await User.get(rule.created_by)
+    is_same_tenant = (creator and creator.tenant_id == tenant_cid) or (tenant_cid in rule.company_ids)
+    if not is_same_tenant:
+        raise HTTPException(status_code=403, detail="Access denied. You cannot modify rules for another tenant.")
         
     if current_user.role != UserRole.ADMIN and rule.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="You do not have permission to modify this rule")
@@ -651,10 +663,17 @@ async def delete_recurring_rule(
     current_user: User = Depends(get_current_user),
 ):
     from app.models.recurring_task import RecurrenceRule
+    from app.auth.tenant_scope import require_tenant_id
     
     rule = await RecurrenceRule.get(PydanticObjectId(rule_id))
     if not rule:
         raise HTTPException(status_code=404, detail="Recurring rule not found")
+        
+    tenant_cid = require_tenant_id(current_user)
+    creator = await User.get(rule.created_by)
+    is_same_tenant = (creator and creator.tenant_id == tenant_cid) or (tenant_cid in rule.company_ids)
+    if not is_same_tenant:
+        raise HTTPException(status_code=403, detail="Access denied. You cannot modify rules for another tenant.")
         
     if current_user.role != UserRole.ADMIN and rule.created_by != current_user.id:
         raise HTTPException(status_code=403, detail="You do not have permission to modify this rule")

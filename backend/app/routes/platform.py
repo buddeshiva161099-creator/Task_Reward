@@ -186,7 +186,14 @@ async def platform_login(request: Request, body: PlatformLoginRequest, response:
 
 
 @router.get("/me")
-async def platform_me(owner: User = Depends(require_platform_owner)):
+async def platform_me(request: Request, owner: User = Depends(require_platform_owner)):
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get("owner_access_token") or request.cookies.get("access_token")
+
     return {
         "id": str(owner.id),
         "name": owner.name,
@@ -194,6 +201,7 @@ async def platform_me(owner: User = Depends(require_platform_owner)):
         "role": owner.role.value,
         "must_change_password": owner.must_change_password,
         "last_login_at": to_utc_iso(owner.last_login_at) if owner.last_login_at else None,
+        "access_token": token,
     }
 
 

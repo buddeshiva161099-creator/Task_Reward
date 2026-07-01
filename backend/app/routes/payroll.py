@@ -216,10 +216,10 @@ async def calculate_corporate_payroll(
     regularized_attendance_ids = {str(reg.attendance_id) for reg in approved_regularizations}
 
     # 8. Loop through working days to find present, absent, paid leaves
-    present_days = 0
-    absent_days = 0
-    paid_leaves = 0
-    approved_regularization_days = 0
+    present_days = 0.0
+    absent_days = 0.0
+    paid_leaves = 0.0
+    approved_regularization_days = 0.0
     late_penalties = 0.0
     overtime_pay = 0.0
 
@@ -238,8 +238,8 @@ async def calculate_corporate_payroll(
             is_regularized = log and str(log.id) in regularized_attendance_ids
 
             if is_regularized:
-                present_days += 1
-                approved_regularization_days += 1
+                present_days += 1.0
+                approved_regularization_days += 1.0
                 if log:
                     status_lower = log.status.lower() if log.status else ""
                     if "late" in status_lower:
@@ -248,10 +248,22 @@ async def calculate_corporate_payroll(
                         overtime_pay += 500.0
             elif log:
                 status_lower = log.status.lower() if log.status else ""
-                if "absent" in status_lower or "absence" in status_lower:
-                    absent_days += 1
+                half_day_min = getattr(tenant, "half_day_min_hours", 4.0)
+                full_day_min = getattr(tenant, "full_day_min_hours", 8.0)
+                
+                duration_hours = 0.0
+                if log.check_in and log.check_out:
+                    duration_hours = (log.check_out - log.check_in).total_seconds() / 3600.0
+                
+                if "half_day_absent" in status_lower or (log.check_in and log.check_out and duration_hours < half_day_min):
+                    absent_days += 1.0
+                elif "half_day_present" in status_lower or (log.check_in and log.check_out and duration_hours < full_day_min):
+                    present_days += 0.5
+                    absent_days += 0.5
+                elif "absent" in status_lower or "absence" in status_lower:
+                    absent_days += 1.0
                 else:
-                    present_days += 1
+                    present_days += 1.0
 
                     # Late check-in penalty: flat 100 INR
                     if "late" in status_lower:
@@ -266,23 +278,23 @@ async def calculate_corporate_payroll(
                     if ltype_str == "casual":
                         casual_leaves_counter += 1
                         if casual_leaves_counter <= max_paid_casual_per_month:
-                            paid_leaves += 1
+                            paid_leaves += 1.0
                         else:
                             # Excess casual leaves in the month are unpaid (Loss of Pay)
-                            absent_days += 1
+                            absent_days += 1.0
                     elif ltype_str == "loss_of_pay":
-                        absent_days += 1
+                        absent_days += 1.0
                     elif ltype_str in ["sick", "earned", "approved_leave"]:
-                        paid_leaves += 1
+                        paid_leaves += 1.0
                     else:
                         # Paid leaves are counted towards paid_leaves
-                        paid_leaves += 1
+                        paid_leaves += 1.0
                 else:
-                    absent_days += 1
+                    absent_days += 1.0
         cur_day += timedelta(days=1)
 
     payable_days = present_days + paid_leaves
-    absent_days = max(0, total_working_days - payable_days)
+    absent_days = max(0.0, total_working_days - payable_days)
 
     # 9. Perform Calculations
     basic = structure.basic
@@ -365,8 +377,13 @@ async def calculate_corporate_payroll(
             if total_working_days > 0:
                 attn_rate = (earned_attn_pts / total_working_days) * 100.0
             
-            if attn_rate >= tenant.attendance_bonus_threshold:
-                bonuses = gross_base * (tenant.attendance_bonus_percentage / 100.0)
+            # Get attendance bonus settings with safe default fallbacks to 0 (disabled)
+            attendance_bonus_threshold = getattr(tenant, "attendance_bonus_threshold", 100.0)
+            attendance_bonus_percentage = getattr(tenant, "attendance_bonus_percentage", 0.0)
+            if attn_rate >= attendance_bonus_threshold:
+                bonuses = gross_base * (attendance_bonus_percentage / 100.0)
+            else:
+                bonuses = 0.0
             
             # Calculate Performance Incentive
             from app.models.task import Task, TaskStatus
@@ -381,14 +398,18 @@ async def calculate_corporate_payroll(
                 target_pts = role_targets.get(employee.role, 150.0)
             perf_score = (employee.reward_points / target_pts) * 100.0 if target_pts > 0 else 0.0
             
-            # Match performance to tier
-            tier_pct = 0.0
-            for tier in tenant.incentive_tiers:
-                if tier["min_performance"] <= perf_score <= tier["max_performance"]:
-                    tier_pct = tier["pool_percentage"]
-                    break
+            # Match dynamic tenant rules for performance bonus with safe default fallbacks to 0 (disabled)
+            perf_bonus_threshold = getattr(tenant, "performance_bonus_threshold", 999.0)
+            perf_bonus_pct = getattr(tenant, "performance_bonus_percentage", 0.0)
+            perf_bonus_flat = getattr(tenant, "performance_bonus_amount", 0.0)
             
-            incentives = gross_base * (tier_pct / 100.0) * (tenant.performance_incentive_pool_percentage / 100.0)
+            if perf_score >= perf_bonus_threshold:
+                if perf_bonus_flat > 0:
+                    incentives = perf_bonus_flat
+                else:
+                    incentives = gross_base * (perf_bonus_pct / 100.0)
+            else:
+                incentives = 0.0
                 
             # Backlog penalty (> 5 overdue tasks)
             overdue_count = await Task.find(
@@ -427,6 +448,9 @@ async def calculate_corporate_payroll(
         payroll.recalculation_required = False
     else:
         payroll = Payroll(user_id=employee.id, user_name=employee.name, month=month)
+
+    payroll.tenant_id = employee.tenant_id
+    payroll.business_unit_id = employee.business_unit_id
 
     payroll.basic = basic
     payroll.hra = hra
@@ -493,6 +517,8 @@ async def configure_salary_structure(
     if not structure:
         structure = SalaryStructure(user_id=user_id)
 
+    structure.tenant_id = employee.tenant_id
+    structure.business_unit_id = employee.business_unit_id
     structure.basic = request.basic
     structure.hra = request.hra
     structure.special_allowance = request.special_allowance
@@ -864,11 +890,15 @@ async def get_payroll_summary(
 
 @router.get("/pending", response_model=List[dict])
 async def get_pending_payrolls(
+    employee_id: Optional[str] = None,
+    year: Optional[str] = None,
+    month: Optional[str] = None,
     user: User = Depends(require_hr_team),
     active_bu_id = Depends(get_active_business_unit_id),
 ):
     """List payroll runs. Filters by hierarchy for non-Admin roles. When a business
-    unit is active, only payrolls belonging to that unit are returned."""
+    unit is active, only payrolls belonging to that unit are returned.
+    Supports searching by employee_id, year, and month."""
     from app.services.user_service import get_visible_employee_ids
     cid = require_tenant_id(user)
 
@@ -878,6 +908,22 @@ async def get_pending_payrolls(
         conditions.append(In(Payroll.user_id, list(visible_ids)))
     if active_bu_id is not None:
         conditions.append(Payroll.business_unit_id == active_bu_id)
+
+    # Search filters
+    if employee_id:
+        conditions.append(Payroll.user_id == PydanticObjectId(employee_id))
+
+    if year or month:
+        target_year = year or ""
+        target_month = month or ""
+        if target_year and target_month:
+            padded_month = target_month.zfill(2)
+            conditions.append(Payroll.month == f"{target_year}-{padded_month}")
+        elif target_year:
+            conditions.append({"month": {"$regex": f"^{target_year}-"}})
+        elif target_month:
+            padded_month = target_month.zfill(2)
+            conditions.append({"month": {"$regex": f"-{padded_month}$"}})
 
     payrolls = await Payroll.find(*conditions).sort("-month").to_list()
 

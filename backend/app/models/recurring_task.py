@@ -39,6 +39,7 @@ class RecurrenceRule(Document):
     weekdays: Optional[List[int]] = None  # 0=Mon … 6=Sun, used for weekly
     month_days: Optional[List[int]] = None  # 1‑31, used for monthly
     start_date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     end_type: RecurrenceEndType = RecurrenceEndType.NEVER
     end_date: Optional[datetime] = None
     occurrences: Optional[int] = None  # Used when end_type == AFTER_OCCURRENCES

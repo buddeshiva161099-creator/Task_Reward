@@ -49,6 +49,7 @@ export default function AdminDashboard() {
   const [filterType, setFilterType] = useState('month');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  const [filterEmployeeId, setFilterEmployeeId] = useState('');
 
   const fetchDashboard = async () => {
     try {
@@ -57,6 +58,9 @@ export default function AdminDashboard() {
       if (filterType === 'custom' && customStart && customEnd) {
         params.start_date = customStart;
         params.end_date = customEnd;
+      }
+      if (filterEmployeeId) {
+        params.employee_id = filterEmployeeId;
       }
       const res = await api.get('/dashboard/admin', { params });
       setStats(res.data);
@@ -68,20 +72,18 @@ export default function AdminDashboard() {
   };
 
   useEffect(() => {
-    if (filterType !== 'custom') {
+    if (filterType !== 'custom' || (customStart && customEnd)) {
       fetchDashboard();
     }
-  }, [filterType]);
+  }, [filterType, filterEmployeeId]);
 
   useEffect(() => {
-    // For managers: also fetch their team members
-    if (isManagementOnly) {
-      api.get('/admin/employees').then(res => {
-        setTeamMembers(res.data);
-        setTeamCount(res.data.length);
-      }).catch(() => {});
-    }
-  }, [isManagementOnly]);
+    // Fetch all visible employees/team members for the filter dropdown
+    api.get('/admin/employees').then(res => {
+      setTeamMembers(res.data);
+      setTeamCount(res.data.length);
+    }).catch((err) => console.error('Failed to load dashboard employees:', err));
+  }, []);
 
   const handleApplyCustomDates = (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,6 +173,25 @@ export default function AdminDashboard() {
           </div>
           
           <form onSubmit={handleApplyCustomDates} className="flex items-center gap-2.5 flex-wrap">
+            <div className="flex items-center gap-1.5 bg-indigo-900/60 p-1 rounded-xl border border-indigo-750">
+              <span className="text-[10px] font-bold px-2 text-indigo-300 uppercase flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                Employee
+              </span>
+              <select
+                value={filterEmployeeId}
+                onChange={(e) => setFilterEmployeeId(e.target.value)}
+                className="text-xs font-bold bg-slate-900 border-none text-white rounded-lg px-3 py-1.5 focus:outline-none cursor-pointer max-w-[160px]"
+              >
+                <option value="">All Employees</option>
+                {teamMembers.map((emp: any) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div className="flex items-center gap-1.5 bg-indigo-900/60 p-1 rounded-xl border border-indigo-750">
               <span className="text-[10px] font-bold px-2 text-indigo-300 uppercase flex items-center gap-1">
                 <Filter className="w-3 h-3" />

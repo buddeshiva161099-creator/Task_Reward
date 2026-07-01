@@ -97,9 +97,15 @@ async def spawn_tasks_from_rule(rule: RecurrenceRule):
     category_ids = rule.category_ids or []
     assignee_ids = rule.assigned_to_list or []
     company_ids = rule.company_ids or []
+    business_unit_id = None
+
+    template_task = None
+    if rule.task_template_id:
+        template_task = await Task.get(rule.task_template_id)
+        if template_task:
+            business_unit_id = template_task.business_unit_id
 
     if not work_description and rule.task_template_id:
-        template_task = await Task.get(rule.task_template_id)
         if template_task:
             work_description = template_task.work_description
             priority = template_task.priority
@@ -151,6 +157,7 @@ async def spawn_tasks_from_rule(rule: RecurrenceRule):
                 tenant_id=str(cid) if cid else None,
                 recurring_task_id=rule.id,
                 category_ids=[str(cat_id) for cat_id in category_ids],
+                business_unit_id=str(business_unit_id) if business_unit_id else None,
             )
 
     rule.last_occurrence = rule.next_run

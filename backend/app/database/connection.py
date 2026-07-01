@@ -31,6 +31,7 @@ from app.models.notification_engine import NotificationTemplate, NotificationPre
 from app.models.subscription_plan import SubscriptionPlan
 from app.models.platform_audit_log import PlatformAuditLog
 from app.models.business_unit import BusinessUnit
+from app.models.shift import Shift, ShiftAssignment
 
 
 async def auto_seed_if_needed():
@@ -81,7 +82,7 @@ async def init_db():
                 ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact,
                 PolicyVersion, ApprovalPolicy, Employee, LeaveLedgerEntry, RewardLedgerEntry,
                 NotificationTemplate, NotificationPreference, NotificationDeliveryLog,
-                SubscriptionPlan, PlatformAuditLog, BusinessUnit
+                SubscriptionPlan, PlatformAuditLog, BusinessUnit, Shift, ShiftAssignment
             ]
         )
         print(f"[OK] Connected to MongoDB: {settings.DATABASE_NAME}")
@@ -114,7 +115,7 @@ async def init_db():
                     ChatGroup, ChatMessage, CachedAIInsight, AuditEvent, PayrollRecalculationImpact,
                     PolicyVersion, ApprovalPolicy, Employee, LeaveLedgerEntry, RewardLedgerEntry,
                     NotificationTemplate, NotificationPreference, NotificationDeliveryLog,
-                    SubscriptionPlan, PlatformAuditLog, BusinessUnit
+                    SubscriptionPlan, PlatformAuditLog, BusinessUnit, Shift, ShiftAssignment
                 ]
             )
             print(f"[OK] Connected to mock in-memory MongoDB: {settings.DATABASE_NAME}")

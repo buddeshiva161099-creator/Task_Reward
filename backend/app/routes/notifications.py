@@ -83,20 +83,30 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str, token: str = No
     Validates token from query parameters or cookies, checking user ID ownership and token version.
     """
     token_val = token or websocket.cookies.get("access_token") or websocket.cookies.get("owner_access_token")
-    if token_val:
-        from app.auth.jwt_handler import decode_access_token
-        payload = decode_access_token(token_val)
-        if payload:
-            sub = payload.get("sub")
-            token_version = payload.get("token_version", 0)
-            user = await User.get(PydanticObjectId(sub)) if sub else None
-            
-            if not user or user.token_version != token_version or (sub and sub != user_id):
-                # Security: trying to subscribe to another user's stream or stale token
-                await websocket.accept()
-                await websocket.send_json({"type": "error", "message": "Unauthorized stream access"})
-                await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-                return
+    if not token_val:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Missing authentication token"})
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    from app.auth.jwt_handler import decode_access_token
+    payload = decode_access_token(token_val)
+    if not payload:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Invalid or expired token"})
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    sub = payload.get("sub")
+    token_version = payload.get("token_version", 0)
+    user = await User.get(PydanticObjectId(sub)) if sub else None
+    
+    if not user or user.token_version != token_version or (sub and sub != user_id):
+        # Security: trying to subscribe to another user's stream or stale token
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "Unauthorized stream access"})
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
 
     await manager.connect(websocket, user_id)
     try:

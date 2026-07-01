@@ -24,6 +24,13 @@ import {
   CheckSquare,
   CalendarRange,
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  Tooltip,
+} from 'recharts';
 
 export default function OwnerDashboardPage() {
   const [metrics, setMetrics] = useState<PlatformMetrics | null>(null);
@@ -79,6 +86,13 @@ export default function OwnerDashboardPage() {
   if (hasError) {
     return <div className="text-rose-600 text-sm p-6">Failed to load metrics.</div>;
   }
+
+  const planChartData = metrics?.plans?.by_code
+    ? Object.entries(metrics.plans.by_code).map(([code, count]) => ({
+        name: code.toUpperCase(),
+        count: count,
+      }))
+    : [];
 
   return (
     <div className="space-y-8">
@@ -170,7 +184,7 @@ export default function OwnerDashboardPage() {
       </div>
 
       {/* Enhanced Platform Insights & Diagnostics */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Estimated MRR & Revenue */}
         <div className="bg-gradient-to-br from-slate-900 to-indigo-950 rounded-2xl p-6 text-white shadow-xl flex flex-col justify-between border border-slate-800">
           <div>
@@ -189,7 +203,7 @@ export default function OwnerDashboardPage() {
           </div>
         </div>
 
-        {/* Database Health Summary */}
+        {/* Database Diagnostics */}
         <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -246,6 +260,33 @@ export default function OwnerDashboardPage() {
           </div>
           <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-400">
             Engagement health score is <strong className="text-emerald-600">Optimal</strong>
+          </div>
+        </div>
+
+        {/* Subscription Plan Distribution Chart */}
+        <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Plan Distribution</span>
+              <Crown className="w-5 h-5 text-amber-600" />
+            </div>
+            {planChartData.length > 0 ? (
+              <div className="h-[105px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={planChartData}>
+                    <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 8 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: 10 }} />
+                    <Bar dataKey="count" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <div className="text-[10px] text-slate-400 text-center py-8">No subscription data.</div>
+            )}
+          </div>
+          <div className="mt-4 pt-3 border-t border-slate-100 text-xs text-slate-400 flex justify-between">
+            <span>Total plans defined</span>
+            <strong className="text-amber-600">{metrics.plans?.total_plans ?? 0}</strong>
           </div>
         </div>
       </div>

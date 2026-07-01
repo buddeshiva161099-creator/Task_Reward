@@ -21,8 +21,12 @@ export function OwnerAuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const response = await ownerApi.get('/platform/me');
       setOwner(response.data);
+      if (response.data?.access_token) {
+        localStorage.setItem('owner_access_token', response.data.access_token);
+      }
     } catch {
       localStorage.removeItem('platform_owner');
+      localStorage.removeItem('owner_access_token');
       setOwner(null);
     } finally {
       setIsLoading(false);
@@ -35,8 +39,11 @@ export function OwnerAuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = async (email: string, password: string) => {
     const response = await ownerApi.post('/platform/auth/login', { email, password });
-    const { owner: ownerData } = response.data;
+    const { owner: ownerData, access_token } = response.data;
     localStorage.setItem('platform_owner', JSON.stringify(ownerData));
+    if (access_token) {
+      localStorage.setItem('owner_access_token', access_token);
+    }
     setOwner(ownerData);
   };
 
@@ -48,6 +55,7 @@ export function OwnerAuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Logout failed:', error);
     }
     localStorage.removeItem('platform_owner');
+    localStorage.removeItem('owner_access_token');
     setOwner(null);
     window.location.href = '/owner/login';
   }, []);

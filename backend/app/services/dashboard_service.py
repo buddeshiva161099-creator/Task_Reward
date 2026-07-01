@@ -57,9 +57,21 @@ async def get_admin_dashboard(
     custom_end: Optional[str] = None,
     visible_ids: Optional[set] = None,
     business_unit_id: Optional[PydanticObjectId] = None,
+    employee_id: Optional[str] = None,
 ):
     """Get admin dashboard analytics data with optimized batch queries and hierarchy filtering."""
-    if visible_ids is None:
+    if employee_id:
+        from app.services.user_service import get_visible_employee_ids
+        allowed_ids = await get_visible_employee_ids(current_user)
+        target_uid = PydanticObjectId(employee_id)
+        if allowed_ids is not None:
+            if target_uid in allowed_ids:
+                visible_ids = {target_uid}
+            else:
+                visible_ids = set()
+        else:
+            visible_ids = {target_uid}
+    elif visible_ids is None:
         from app.services.user_service import get_visible_employee_ids
 
         visible_ids = await get_visible_employee_ids(current_user)
@@ -72,7 +84,7 @@ async def get_admin_dashboard(
             User.is_deleted != True,
             User.tenant_id == current_user.tenant_id,
             In(User.id, list(visible_ids)),
-            **bu_filter,
+            bu_filter,
         ).count()
         active_employees = await User.find(
             In(User.role, NON_ADMIN_ROLES),
@@ -80,21 +92,21 @@ async def get_admin_dashboard(
             User.is_deleted != True,
             User.tenant_id == current_user.tenant_id,
             In(User.id, list(visible_ids)),
-            **bu_filter,
+            bu_filter,
         ).count()
     else:
         total_employees = await User.find(
             In(User.role, NON_ADMIN_ROLES),
             User.is_deleted != True,
             User.tenant_id == current_user.tenant_id,
-            **bu_filter,
+            bu_filter,
         ).count()
         active_employees = await User.find(
             In(User.role, NON_ADMIN_ROLES),
             User.is_active == True,
             User.is_deleted != True,
             User.tenant_id == current_user.tenant_id,
-            **bu_filter,
+            bu_filter,
         ).count()
 
     # Get today's attendance stats with a single query
@@ -380,6 +392,17 @@ async def get_employee_dashboard(
         else (100.0 if completed_this_month > 0 else 0.0)
     )
 
+    # Calculate current check-in streak
+    streak = 0
+    for idx, entry in enumerate(attendance_history_detailed):
+        if entry.get("status") == "present":
+            streak += 1
+        elif entry.get("status") == "absent":
+            # Allow skipping today if they haven't checked in yet, but break if yesterday was also absent
+            if idx == 0:
+                continue
+            break
+
     return {
         "user": {
             "name": user.name,
@@ -396,6 +419,7 @@ async def get_employee_dashboard(
         "attendance_status": attendance_status,
         "attendance_history": attendance_history,
         "attendance_history_detailed": attendance_history_detailed,
+        "attendance_streak": streak,
         "due_this_month": due_this_month,
         "efficiency_rate": efficiency_rate,
         "performance_tracking": await get_performance_metrics(
@@ -435,7 +459,7 @@ async def get_all_attendance_summary(
     user_collection = User.get_pymongo_collection()
     employees = await user_collection.find(
         user_query,
-        {"_id": 1, "name": 1, "email": 1, "reward_points": 1}
+        {"_id": 1, "name": 1, "email": 1, "reward_points": 1, "role": 1}
     ).to_list(length=100000)
 
     if not employees:
@@ -512,6 +536,9 @@ async def get_all_attendance_summary(
                     "location_out": record.get("location_out"),
                     "address_in": record.get("address_in"),
                     "address_out": record.get("address_out"),
+                    "flags": record.get("flags", []),
+                    "is_auto_closed": bool(record.get("is_auto_closed")),
+                    "location_drift_km": record.get("location_drift_km"),
                     "is_regularized": bool(record.get("remarks") and "Regularized" in record.get("remarks"))
                 })
             history.append(entry)
@@ -521,6 +548,7 @@ async def get_all_attendance_summary(
             "user_name": emp.get("name"),
             "user_email": emp.get("email"),
             "reward_points": emp.get("reward_points", 0),
+            "role": emp.get("role"),
             "history": history,
         })
     return summary
@@ -546,9 +574,27 @@ async def _get_today_attendance_stats(total_employees: int, visible_employee_ids
     # Get count of unique users who checked in today
     present_count = len(await Attendance.distinct("user_id", match_query))
 
-    absent_count = max(0, total_employees - present_count)
+    # Get count of users on leave today
+    from app.models.leave import Leave, LeaveStatus
+    leave_query = {
+        "status": LeaveStatus.APPROVED,
+        "start_date": {"$lte": today_start},
+        "end_date": {"$gte": today_start}
+    }
+    if tenant_id is not None:
+        leave_query["tenant_id"] = tenant_id
+    if visible_employee_ids is not None:
+        leave_query["user_id"] = {"$in": list(visible_employee_ids)}
+    
+    on_leave_count = await Leave.find(leave_query).count()
+    absent_count = max(0, total_employees - present_count - on_leave_count)
 
-    return {"present": present_count, "absent": absent_count, "total": total_employees}
+    return {
+        "present": present_count,
+        "absent": absent_count,
+        "on_leave": on_leave_count,
+        "total": total_employees
+    }
 
 
 def get_date_range_for_filter(
@@ -752,3 +798,253 @@ async def get_performance_metrics(
         "productivity_pct": productivity_pct,
         "performance_score": performance_score,
     }
+
+
+async def get_monthly_attendance_summary(
+    year: int,
+    month: int,
+    visible_employee_ids=None,
+    business_unit_id: Optional[PydanticObjectId] = None,
+    tenant_id: Optional[PydanticObjectId] = None,
+):
+    """Get complete month attendance summary for all employees."""
+    import calendar
+
+    tenant = await Tenant.get(tenant_id) if tenant_id else None
+    if not tenant:
+        tenant = await Tenant.find_one(Tenant.is_active == True)
+
+    work_days = tenant.work_days if tenant else ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    work_start_time = tenant.work_start_time if tenant else "09:00"
+    work_end_time = tenant.work_end_time if tenant else "18:00"
+    half_day_min_hours = tenant.half_day_min_hours if tenant else 4.0
+    full_day_min_hours = tenant.full_day_min_hours if tenant else 8.0
+    work_days_set = {d.strip().lower() for d in work_days} if work_days else None
+
+    user_query = {}
+    if tenant_id is not None:
+        user_query["tenant_id"] = tenant_id
+
+    if visible_employee_ids is not None:
+        user_query["_id"] = {"$in": list(visible_employee_ids)}
+    else:
+        user_query["role"] = {"$in": [r.value for r in NON_ADMIN_ROLES]}
+
+    if business_unit_id is not None:
+        user_query["business_unit_id"] = business_unit_id
+
+    user_collection = User.get_pymongo_collection()
+    employees = await user_collection.find(
+        user_query,
+        {"_id": 1, "name": 1, "email": 1, "reward_points": 1, "role": 1}
+    ).to_list(length=100000)
+
+    if not employees:
+        return {
+            "work_days": work_days,
+            "work_start_time": work_start_time,
+            "work_end_time": work_end_time,
+            "half_day_min_hours": half_day_min_hours,
+            "full_day_min_hours": full_day_min_hours,
+            "summaries": []
+        }
+
+    last_day = calendar.monthrange(year, month)[1]
+    history_start = datetime(year, month, 1, 0, 0, 0, tzinfo=IST)
+    history_end = datetime(year, month, last_day, 23, 59, 59, tzinfo=IST)
+
+    employee_ids = [emp["_id"] for emp in employees]
+
+    att_collection = Attendance.get_pymongo_collection()
+    logs = await att_collection.find(
+        {
+            "user_id": {"$in": employee_ids},
+            "check_in": {"$gte": history_start, "$lte": history_end}
+        },
+        {
+            "user_id": 1, "check_in": 1, "check_out": 1,
+            "location_in": 1, "location_out": 1,
+            "address_in": 1, "address_out": 1, "remarks": 1,
+            "flags": 1, "is_auto_closed": 1, "location_drift_km": 1
+        }
+    ).to_list(length=500000)
+
+    from app.models.regularization import AttendanceRegularization, RegularizationStatus
+    reg_collection = AttendanceRegularization.get_pymongo_collection()
+    regs = await reg_collection.find(
+        {
+            "user_id": {"$in": employee_ids},
+            "status": RegularizationStatus.APPROVED.value,
+            "created_at": {"$gte": history_start, "$lte": history_end}
+        },
+        {"user_id": 1, "attendance_id": 1}
+    ).to_list(length=500000)
+
+    from app.models.leave import Leave, LeaveStatus
+    leave_collection = Leave.get_pymongo_collection()
+    leaves = await leave_collection.find(
+        {
+            "user_id": {"$in": employee_ids},
+            "status": LeaveStatus.APPROVED.value,
+            "end_date": {"$gte": history_start},
+            "start_date": {"$lte": history_end}
+        },
+        {"user_id": 1, "start_date": 1, "end_date": 1, "leave_type": 1}
+    ).to_list(length=500000)
+
+    from app.models.holiday import Holiday
+    hol_collection = Holiday.get_pymongo_collection()
+    hol_list = await hol_collection.find(
+        {
+            "date": {"$gte": history_start, "$lte": history_end},
+            "$or": [{"tenant_id": tenant_id}, {"tenant_id": None}]
+        }
+    ).to_list(length=1000)
+
+    log_map: dict = {}
+    for log in logs:
+        uid = str(log["user_id"])
+        check_in = log.get("check_in")
+        if check_in and check_in.tzinfo is None:
+            log["check_in"] = check_in.replace(tzinfo=timezone.utc)
+        check_out = log.get("check_out")
+        if check_out and check_out.tzinfo is None:
+            log["check_out"] = check_out.replace(tzinfo=timezone.utc)
+
+        dt = log["check_in"]
+        date_str = dt.astimezone(IST).date().isoformat()
+
+        if uid not in log_map:
+            log_map[uid] = {}
+        if date_str not in log_map[uid]:
+            log_map[uid][date_str] = log
+
+    reg_map: dict = {}
+    attendance_id_map = {str(log["_id"]): log for log in logs}
+    for reg in regs:
+        uid = str(reg["user_id"])
+        attn = attendance_id_map.get(str(reg.get("attendance_id")))
+        if attn:
+            dt = attn["check_in"]
+            date_str = dt.astimezone(IST).date().isoformat()
+            if uid not in reg_map:
+                reg_map[uid] = set()
+            reg_map[uid].add(date_str)
+
+    leave_map: dict = {}
+    for leave in leaves:
+        uid = str(leave["user_id"])
+        if uid not in leave_map:
+            leave_map[uid] = []
+        leave_map[uid].append({
+            "start": leave["start_date"].astimezone(IST).date(),
+            "end": leave["end_date"].astimezone(IST).date(),
+            "leave_type": leave.get("leave_type")
+        })
+
+    holiday_map = {}
+    for h in hol_list:
+        h_date = h["date"]
+        if h_date.tzinfo is None:
+            h_date = h_date.replace(tzinfo=timezone.utc)
+        holiday_map[h_date.astimezone(IST).date().isoformat()] = h.get("name", "Holiday")
+
+    days_data = []
+    for d in range(1, last_day + 1):
+        day = datetime(year, month, d)
+        days_data.append({
+            "iso": to_utc_iso(day),
+            "date_str": day.date().isoformat()
+        })
+
+    summary = []
+    for emp in employees:
+        uid_str = str(emp["_id"])
+        history = []
+        emp_logs = log_map.get(uid_str, {})
+        emp_regs = reg_map.get(uid_str, set())
+        emp_leaves = leave_map.get(uid_str, [])
+
+        for d in days_data:
+            record = emp_logs.get(d["date_str"])
+            is_holiday = d["date_str"] in holiday_map
+            is_regularized = d["date_str"] in emp_regs
+            
+            leave_type = None
+            d_date = datetime.strptime(d["date_str"], "%Y-%m-%d").date()
+            for l in emp_leaves:
+                if l["start"] <= d_date <= l["end"]:
+                    leave_type = l["leave_type"]
+                    break
+
+            # Calculate daily status based on rules
+            if is_holiday:
+                status_str = "holiday"
+            elif is_regularized:
+                status_str = "regularized"
+            elif leave_type:
+                status_str = "leave"
+            elif record:
+                status_str = record.get("status") or "present"
+                check_in = record.get("check_in")
+                check_out = record.get("check_out")
+                if check_in and check_out:
+                    duration_hours = (check_out - check_in).total_seconds() / 3600.0
+                    if duration_hours < half_day_min_hours:
+                        status_str = "half_day_absent"
+                    elif duration_hours < full_day_min_hours:
+                        status_str = "half_day_present"
+                    elif "early_checkout" in record.get("flags", []):
+                        if "late" in status_str:
+                            status_str = "late_and_early_checkout"
+                        else:
+                            status_str = "early_checkout"
+            else:
+                day_name_lower = d_date.strftime("%A").lower()
+                is_workday = day_name_lower in work_days_set if work_days_set is not None else (d_date.weekday() < 5)
+                if not is_workday:
+                    status_str = "weekend"
+                else:
+                    status_str = "absent"
+
+            entry = {
+                "date": d["iso"],
+                "status": status_str,
+            }
+            if record:
+                entry.update({
+                    "check_in": to_utc_iso(record["check_in"]) if record.get("check_in") else None,
+                    "check_out": to_utc_iso(record["check_out"]) if record.get("check_out") else None,
+                    "location_in": record.get("location_in"),
+                    "location_out": record.get("location_out"),
+                    "address_in": record.get("address_in"),
+                    "address_out": record.get("address_out"),
+                    "flags": record.get("flags", []),
+                    "is_auto_closed": bool(record.get("is_auto_closed")),
+                    "location_drift_km": record.get("location_drift_km"),
+                    "is_regularized": is_regularized or bool(record.get("remarks") and "Regularized" in record.get("remarks"))
+                })
+            elif is_holiday:
+                entry.update({"holiday_name": holiday_map[d["date_str"]]})
+            elif leave_type:
+                entry.update({"leave_type": str(leave_type)})
+
+            history.append(entry)
+
+        summary.append({
+            "user_id": uid_str,
+            "user_name": emp.get("name"),
+            "user_email": emp.get("email"),
+            "reward_points": emp.get("reward_points", 0),
+            "role": emp.get("role"),
+            "history": history,
+        })
+    return {
+        "work_days": work_days,
+        "work_start_time": work_start_time,
+        "work_end_time": work_end_time,
+        "half_day_min_hours": half_day_min_hours,
+        "full_day_min_hours": full_day_min_hours,
+        "summaries": summary
+    }
+

@@ -11,7 +11,7 @@ from app.database.connection import init_db
 
 
 
-from app.routes import auth, employees, tasks, dashboard, reports, attendance, search, holidays, notifications, categories, leaves, regularization, payroll, chat, ai, simulation, platform, business_units, companies, tenants
+from app.routes import auth, employees, tasks, dashboard, reports, attendance, search, holidays, notifications, categories, leaves, regularization, payroll, chat, ai, simulation, platform, business_units, companies, tenants, shifts
 
 
 import asyncio
@@ -164,12 +164,67 @@ async def backfill_attendance_tenant_ids():
         _logger.error(f"[MIGRATION] Error in backfill_attendance_tenant_ids: {e}")
 
 
+async def check_upcoming_deadlines():
+    """Scan database for tasks with deadlines approaching in the next 24 hours and notify assignees."""
+    from datetime import datetime, timezone, timedelta
+    from app.models.task import Task, TaskStatus
+    from app.models.notification import Notification
+    from app.services.notification_service import NotificationService
+    from beanie.operators import In
+    import logging
+    _logger = logging.getLogger(__name__)
+
+    now = datetime.now(timezone.utc)
+    warning_threshold = now + timedelta(hours=24)
+
+    # Find pending/assigned/in_progress tasks due in the next 24 hours
+    upcoming_tasks = await Task.find(
+        In(Task.status, [TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS]),
+        Task.deadline >= now,
+        Task.deadline <= warning_threshold,
+    ).to_list()
+
+    for task in upcoming_tasks:
+        try:
+            # Check if we already notified the user about this task's approaching deadline
+            already_notified = await Notification.find_one(
+                Notification.user_id == task.assigned_to,
+                Notification.type == "deadline_approaching",
+                {"message": {"$regex": str(task.id)}}
+            )
+            if already_notified:
+                continue
+
+            # Calculate remaining time for the notification message
+            remaining_seconds = (task.deadline - now).total_seconds()
+            remaining_hours = int(remaining_seconds // 3600)
+            remaining_minutes = int((remaining_seconds % 3600) // 60)
+
+            time_str = ""
+            if remaining_hours > 0:
+                time_str += f"{remaining_hours} hour(s) "
+            if remaining_minutes > 0 or not time_str:
+                time_str += f"{remaining_minutes} minute(s)"
+
+            message = f"Your task '{task.work_description[:60]}...' is due in {time_str.strip()}! (Task ID: {task.id})"
+            
+            await NotificationService.notify_user(
+                user_id=task.assigned_to,
+                title="Upcoming Task Deadline",
+                message=message,
+                type="deadline_approaching",
+            )
+            _logger.info(f"[DEADLINE-WARNING] Pushed approaching deadline warning to user {task.assigned_to} for task {task.id}")
+        except Exception as e:
+            _logger.error(f"Error checking/sending deadline warning for task {task.id}: {e}")
+
+
 async def run_periodic_tasks():
     """Background loop for recurring tasks with adaptive sleep."""
     import logging
     _logger = logging.getLogger(__name__)
-    base_sleep = 60  # Check every minute if active/busy
-    max_sleep = 900  # Max sleep 15 minutes
+    base_sleep = 10  # Check every 10 seconds if active/busy
+    max_sleep = 60   # Max sleep 1 minute
     current_sleep = base_sleep
 
     while True:
@@ -177,6 +232,7 @@ async def run_periodic_tasks():
             # Run tasks
             await recurrence_service.process_recurrence()
             await auto_checkout_stale_sessions()
+            await check_upcoming_deadlines()
 
             # Adaptive sleep calculation based on active data
             from app.models.attendance import Attendance
@@ -185,10 +241,12 @@ async def run_periodic_tasks():
             open_count = await Attendance.find(Attendance.check_out == None).count()
             active_rules = await RecurrenceRule.find(RecurrenceRule.is_active == True).count()
             
-            if open_count > 0 or active_rules > 0:
-                current_sleep = 300  # 5 minutes
+            if active_rules > 0:
+                current_sleep = 10  # 10 seconds for responsive recurring task spawning
+            elif open_count > 0:
+                current_sleep = 30  # 30 seconds
             else:
-                current_sleep = max_sleep  # 15 minutes
+                current_sleep = max_sleep  # 60 seconds
         except Exception as e:
             _logger.error(f"Error in background task loop: {e}")
             current_sleep = base_sleep
@@ -288,6 +346,8 @@ app.middleware("http")(security_headers_middleware)
 
 @app.middleware("http")
 async def jwt_expiry_warning_middleware(request, call_next):
+    if request.scope.get("type") == "websocket":
+        return await call_next(request)
     from app.auth.jwt_handler import check_token_near_expiry, decode_access_token, create_access_token
     from app.config import settings
 
@@ -378,6 +438,7 @@ app.include_router(platform.router)
 app.include_router(tenants.router)
 app.include_router(companies.router)
 app.include_router(business_units.router)
+app.include_router(shifts.router, prefix="/shifts", tags=["Shift Management"])
 
 
 

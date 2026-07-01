@@ -1,7 +1,7 @@
 """
 Authentication routes - login, register, and current user.
 """
-from fastapi import APIRouter, HTTPException, status, Depends, Response, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, Depends, Response, UploadFile, File, Request
 from typing import Optional
 from pydantic import BaseModel
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, ChangePasswordRequest
@@ -104,6 +104,7 @@ async def login(request: LoginRequest, response: Response):
             "primary_company_id": str(user.primary_company_id) if user.primary_company_id else None,
             "scope_company_ids": [str(c) for c in (user.scope_company_ids or [])],
             "business_unit_id": str(user.business_unit_id) if user.business_unit_id else None,
+            "profile_picture": user.profile_picture,
         },
     )
 
@@ -157,9 +158,16 @@ async def register(request: RegisterRequest):
 
 
 @router.get("/me")
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(request: Request, current_user: User = Depends(get_current_user)):
     """Get current authenticated user info."""
     from app.utils.ist_time import to_utc_iso
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+    if not token:
+        token = request.cookies.get("access_token") or request.cookies.get("owner_access_token")
+
     return {
         "id": str(current_user.id),
         "name": current_user.name,
@@ -172,6 +180,8 @@ async def get_me(current_user: User = Depends(get_current_user)):
         "primary_company_id": str(current_user.primary_company_id) if current_user.primary_company_id else None,
         "scope_company_ids": [str(c) for c in (current_user.scope_company_ids or [])],
         "business_unit_id": str(current_user.business_unit_id) if current_user.business_unit_id else None,
+        "profile_picture": current_user.profile_picture,
+        "access_token": token,
     }
 
 
@@ -206,6 +216,23 @@ async def change_password(
     response.delete_cookie(key="access_token", path="/")
 
     return {"message": "Password updated successfully"}
+
+
+class PersonalizationRequest(BaseModel):
+    profile_picture: Optional[str] = None
+
+
+@router.put("/personalization")
+async def update_personalization(
+    request: PersonalizationRequest,
+    current_user: User = Depends(get_current_user)
+):
+    from datetime import datetime, timezone
+    if request.profile_picture is not None:
+        current_user.profile_picture = request.profile_picture
+    current_user.updated_at = datetime.now(timezone.utc)
+    await current_user.save()
+    return {"message": "Personalization settings saved successfully"}
 
 
 @router.post("/logout")

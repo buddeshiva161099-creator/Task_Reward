@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/lib/api';
-import { Brain, Send, X, Loader2 } from 'lucide-react';
+import { Brain, Send, X, Loader2, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AxiosError } from 'axios';
 
@@ -39,7 +39,7 @@ export default function AIAssistant() {
       setMessages([
         {
           sender: 'ai',
-          text: `Hello ${user.name}! I am your AI Workforce Copilot. How can I assist you today? You can query tasks, performance metrics, late logins, or ask operational summaries.`,
+          text: `Hello ${user.name}! I am your AI Workforce Copilot. How can I assist you today? You can query your active tasks, check your shift schedules, inspect leaves, check your rewards balance, or ask me to assign tasks directly.`,
           timestamp: new Date()
         }
       ]);
@@ -55,15 +55,78 @@ export default function AIAssistant() {
       timestamp: new Date()
     };
 
+    // Calculate chat history payload for contextual memory
+    const historyPayload = messages.map(m => ({
+      role: m.sender === 'user' ? 'user' : 'assistant',
+      content: m.text
+    }));
+
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setLoading(true);
 
     try {
-      const res = await api.post('/ai/assistant', { message: textToSend });
+      const res = await api.post('/ai/assistant', { 
+        message: textToSend,
+        history: historyPayload
+      });
+      
+      let responseText = res.data.answer;
+      let actionCompletedMessage = "";
+
+      // Regex to extract json block inside markdown code block
+      const jsonRegex = /```json\s*([\s\S]*?)\s*```/;
+      const match = responseText.match(jsonRegex);
+      if (match && match[1]) {
+        try {
+          const actionPayload = JSON.parse(match[1]);
+          if (actionPayload.action === 'create_task' && actionPayload.parameters) {
+            const { work_description, assigned_to, priority, deadline } = actionPayload.parameters;
+            await api.post('/tasks', {
+              work_description,
+              assigned_to,
+              priority: priority ? priority.toLowerCase() : 'medium',
+              deadline: deadline || null
+            });
+            actionCompletedMessage = "\n\n🤖 *AI Action Executed: Task successfully created and assigned!*";
+          } else if (actionPayload.action === 'update_shift' && actionPayload.parameters) {
+            const { shift_id, name, start_time, end_time, grace_period_minutes, color_code } = actionPayload.parameters;
+            await api.put(`/shifts/${shift_id}`, {
+              name,
+              start_time,
+              end_time,
+              grace_period_minutes,
+              color_code
+            });
+            actionCompletedMessage = `\n\n🤖 *AI Action Executed: Shift '${name}' timings successfully updated to ${start_time} - ${end_time}!*`;
+          } else if (actionPayload.action === 'assign_shift' && actionPayload.parameters) {
+            const { user_id, shift_id, start_date, end_date } = actionPayload.parameters;
+            await api.post('/shifts/assign', {
+              user_id,
+              shift_id,
+              start_date,
+              end_date
+            });
+            actionCompletedMessage = "\n\n🤖 *AI Action Executed: Roster shift assigned successfully to the employee!*";
+          } else if (actionPayload.action === 'approve_leave' && actionPayload.parameters) {
+            const { leave_id, status } = actionPayload.parameters;
+            if (status === 'approved') {
+              await api.post(`/leaves/approve/${leave_id}`);
+              actionCompletedMessage = "\n\n🤖 *AI Action Executed: Leave request successfully approved!*";
+            } else {
+              await api.post(`/leaves/reject/${leave_id}`, { comments: "Rejected by AI Copilot" });
+              actionCompletedMessage = "\n\n🤖 *AI Action Executed: Leave request has been rejected!*";
+            }
+          }
+        } catch (e: any) {
+          console.error("Failed to parse or execute action JSON:", e);
+          actionCompletedMessage = `\n\n⚠️ *AI Action failed: ${e.response?.data?.detail || e.message}*`;
+        }
+      }
+
       const aiMsg: Message = {
         sender: 'ai',
-        text: res.data.answer,
+        text: responseText + actionCompletedMessage,
         timestamp: new Date()
       };
       setMessages((prev) => [...prev, aiMsg]);
@@ -91,10 +154,10 @@ export default function AIAssistant() {
   };
 
   const suggestedTags = [
-    { label: 'Overdue Tasks', query: 'Show overdue tasks' },
-    { label: 'Workload Capacity', query: 'Who is overloaded or underutilized?' },
-    { label: 'Late check-ins', query: 'Show attendance issues or late login patterns' },
-    { label: 'Team Performance', query: 'Who has the highest productivity?' },
+    { label: 'My Active Tasks', query: 'Show my tasks' },
+    { label: 'My Reward Balance', query: 'What is my points balance?' },
+    { label: 'My Shift Timings', query: 'What is my shift roster timing?' },
+    { label: 'Leaves & Holidays', query: 'Show leaves status or holidays' },
   ];
 
   if (!user) return null;
@@ -103,7 +166,7 @@ export default function AIAssistant() {
     <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
       {/* Floating Chat Panel */}
       {isOpen && (
-        <div className="w-[360px] sm:w-[400px] h-[500px] bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl flex flex-col overflow-hidden mb-4 animate-fade-in">
+        <div className="w-[calc(100vw-32px)] sm:w-[480px] max-w-[480px] h-[650px] max-h-[80vh] bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl flex flex-col overflow-hidden mb-4 animate-fade-in">
           {/* Header */}
           <div className="bg-gradient-to-r from-indigo-600 to-indigo-700 p-4 text-white flex items-center justify-between shadow-md">
             <div className="flex items-center gap-2.5">
@@ -156,16 +219,16 @@ export default function AIAssistant() {
           </div>
 
           {/* Suggested Quick-Tags */}
-          {messages.length === 1 && !loading && (
+          {!loading && (
             <div className="px-4 py-2 border-t border-slate-100 bg-white">
-              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1.5">Ask AI Copilot:</span>
+              <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1.5">Quick Actions:</span>
               <div className="flex flex-wrap gap-1.5">
                 {suggestedTags.map((tag, idx) => (
                   <button
                     key={idx}
                     onClick={() => handleSend(tag.query)}
                     title={`Ask AI: ${tag.label}`}
-                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1 rounded-xl transition-colors border border-indigo-100/50"
+                    className="text-[10px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100/80 px-2.5 py-1 rounded-xl transition-colors border border-indigo-100/50 cursor-pointer"
                   >
                     {tag.label}
                   </button>
@@ -189,7 +252,7 @@ export default function AIAssistant() {
             <button
               onClick={() => handleSend(input)}
               disabled={loading || !input.trim()}
-              className="w-10 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 text-white rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100 transition-colors"
+              className="w-10 h-10 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-100 disabled:text-slate-400 text-white rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100 transition-colors cursor-pointer"
               aria-label="Send message"
               title="Send message"
             >
@@ -205,7 +268,7 @@ export default function AIAssistant() {
         aria-label={isOpen ? "Close AI Copilot" : "Open AI Copilot"}
         title={isOpen ? "Close AI Copilot" : "Open AI Copilot"}
         className={cn(
-          "w-14 h-14 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 relative overflow-hidden",
+          "w-14 h-14 rounded-full flex items-center justify-center text-white shadow-2xl transition-all duration-300 hover:scale-105 active:scale-95 relative overflow-hidden cursor-pointer",
           isOpen 
             ? "bg-slate-800 shadow-slate-300/30" 
             : "bg-indigo-600 hover:bg-indigo-700 shadow-indigo-300/40"

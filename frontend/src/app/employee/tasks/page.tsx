@@ -597,7 +597,8 @@ export default function EmployeeTasksPage() {
       </div>
     </>
   ) : (
-    <div className="space-y-6">
+    <>
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-slate-800">Recurring Task Chains</h2>
         <button
@@ -652,9 +653,13 @@ export default function EmployeeTasksPage() {
                     {rule.work_description}
                   </p>
                   
-                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 font-bold text-slate-500">
+                  <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs pt-2 font-bold text-slate-500">
                     <div>
-                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Next Run Date</span>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Created At</span>
+                      <span className="text-slate-700">{rule.created_at ? new Date(rule.created_at).toLocaleString() : 'N/A'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight font-extrabold text-indigo-600">Next Run Date</span>
                       <span className="text-slate-700">{nextRunDate}</span>
                     </div>
                     <div>
@@ -1108,6 +1113,8 @@ export default function EmployeeTasksPage() {
           </div>
         </div>
       )}
+    </>
+  )}
     </div>
   );
 }

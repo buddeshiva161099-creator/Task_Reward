@@ -36,6 +36,18 @@ async def _scope_tasks(q: dict, tenant_id) -> dict:
     return q
 
 
+def to_ist(dt: datetime) -> datetime:
+    """Convert a UTC datetime to Asia/Kolkata timezone."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    try:
+        return dt.astimezone(ZoneInfo("Asia/Kolkata"))
+    except Exception:
+        return dt
+
+
 async def _get_task_data(
     status: Optional[str] = None,
     employee_id: Optional[str] = None,
@@ -68,7 +80,10 @@ async def _get_task_data(
 
     rows = []
     # Determine timezone for formatting
-    tz = ZoneInfo(tz_name) if tz_name else None
+    try:
+        tz = ZoneInfo(tz_name) if (tz_name and tz_name not in ["None", "none", "null", "undefined"]) else ZoneInfo("Asia/Kolkata")
+    except Exception:
+        tz = ZoneInfo("Asia/Kolkata")
 
     def fmt_dt(dt: datetime) -> str:
         """Format datetime in local timezone if provided."""
@@ -244,7 +259,10 @@ async def generate_attendance_excel(
         user_map = {u.id: {"name": u.name, "email": u.email} for u in users}
 
     # Determine timezone for formatting
-    tz = ZoneInfo(tz_name) if tz_name else None
+    try:
+        tz = ZoneInfo(tz_name) if (tz_name and tz_name not in ["None", "none", "null", "undefined"]) else ZoneInfo("Asia/Kolkata")
+    except Exception:
+        tz = ZoneInfo("Asia/Kolkata")
 
     def to_local(dt: datetime) -> datetime:
         """Convert a UTC datetime to local timezone."""
@@ -339,7 +357,7 @@ async def generate_leaves_excel(user_id: Optional[str] = None, tenant_id=None) -
             "Comments": l.comments or "",
             "Verified By": l.verified_by_name or "",
             "Approved By": l.approved_by_name or "",
-            "Created Date": l.created_at.strftime("%d-%m-%Y %H:%M:%S")
+            "Created Date": to_ist(l.created_at).strftime("%d-%m-%Y %H:%M:%S")
         })
         rows.append(row)
         
@@ -383,7 +401,7 @@ async def generate_reward_ledger_excel(user_id: Optional[str] = None, tenant_id=
             "Amount": e.amount,
             "Transaction Type": e.transaction_type.upper(),
             "Description": e.description or "",
-            "Timestamp": e.created_at.strftime("%d-%m-%Y %H:%M:%S")
+            "Timestamp": to_ist(e.created_at).strftime("%d-%m-%Y %H:%M:%S")
         }
         rows.append(row)
         
@@ -422,7 +440,7 @@ async def generate_audit_excel(actor_id: Optional[str] = None, entity_type: Opti
             "Correlation ID": e.correlation_id or "",
             "IP Address": e.ip_address or "",
             "User Agent": e.user_agent or "",
-            "Timestamp": e.timestamp.strftime("%d-%m-%Y %H:%M:%S")
+            "Timestamp": to_ist(e.timestamp).strftime("%d-%m-%Y %H:%M:%S")
         }
         rows.append(row)
         

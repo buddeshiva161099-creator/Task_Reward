@@ -55,12 +55,15 @@ export default function NotificationBell() {
     if (user?.id) {
       const connectWS = () => {
         let wsUrl = '';
+        const token = typeof window !== 'undefined'
+          ? (localStorage.getItem('access_token') || localStorage.getItem('owner_access_token') || '')
+          : '';
 
         if (process.env.NEXT_PUBLIC_WS_URL) {
           const baseWs = process.env.NEXT_PUBLIC_WS_URL.endsWith('/')
             ? process.env.NEXT_PUBLIC_WS_URL.slice(0, -1)
             : process.env.NEXT_PUBLIC_WS_URL;
-          wsUrl = `${baseWs}/notifications/ws/${user.id}`;
+          wsUrl = `${baseWs}/notifications/ws/${user.id}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
         } else {
           const apiUrl = process.env.NEXT_PUBLIC_API_URL;
           if (apiUrl && apiUrl.startsWith('http')) {
@@ -71,7 +74,7 @@ export default function NotificationBell() {
               if (pathname.endsWith('/')) {
                 pathname = pathname.slice(0, -1);
               }
-              wsUrl = `${wsProtocol}//${parsedUrl.host}${pathname}/notifications/ws/${user.id}`;
+              wsUrl = `${wsProtocol}//${parsedUrl.host}${pathname}/notifications/ws/${user.id}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
             } catch (e) {
               console.error('[NotificationBell] Failed to parse NEXT_PUBLIC_API_URL:', e);
             }
@@ -83,7 +86,7 @@ export default function NotificationBell() {
           const defaultHost = typeof window !== 'undefined'
             ? (window.location.hostname === 'localhost' ? `${window.location.hostname}:8000` : window.location.host)
             : 'localhost:8000';
-          wsUrl = `${protocol}//${defaultHost}/notifications/ws/${user.id}`;
+          wsUrl = `${protocol}//${defaultHost}/notifications/ws/${user.id}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
         }
 
         const ws = new WebSocket(wsUrl);
@@ -96,12 +99,44 @@ export default function NotificationBell() {
           console.error('[NotificationBell] WebSocket error', error, wsUrl);
         };
 
+        const playNotificationSound = () => {
+          try {
+            const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioContextClass) return;
+            const ctx = new AudioContextClass();
+            
+            const playTone = (freq: number, startTime: number, duration: number) => {
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              
+              osc.type = 'sine';
+              osc.frequency.setValueAtTime(freq, startTime);
+              
+              gain.gain.setValueAtTime(0.15, startTime);
+              gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+              
+              osc.start(startTime);
+              osc.stop(startTime + duration);
+            };
+            
+            const now = ctx.currentTime;
+            playTone(587.33, now, 0.15);      // D5 tone
+            playTone(880.00, now + 0.1, 0.3);  // A5 tone
+          } catch (e) {
+            console.error('Failed to play notification sound:', e);
+          }
+        };
+
         ws.onmessage = (event) => {
           const message = JSON.parse(event.data);
           if (message.type === 'notification') {
             fetchNotifications();
-            if (Notification.permission === 'granted') {
-              new Notification(message.data.title, { body: message.data.message });
+            playNotificationSound();
+            if (window.Notification && window.Notification.permission === 'granted') {
+              new window.Notification(message.data.title, { body: message.data.message });
             }
           }
         };

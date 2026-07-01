@@ -40,8 +40,15 @@ export default function DashboardCharts({ stats }: DashboardChartsProps) {
   ];
 
   const attendanceData = [
-    { name: 'Present', value: stats.attendance_today.present, color: '#10b981' },
-    { name: 'Absent', value: stats.attendance_today.absent, color: '#ef4444' },
+    { name: 'Present', value: stats.attendance_today.present ?? 0, color: '#10b981' },
+    { name: 'On Leave', value: stats.attendance_today.on_leave ?? 0, color: '#3b82f6' },
+    { name: 'Absent', value: stats.attendance_today.absent ?? 0, color: '#ef4444' },
+  ].filter(d => d.value > 0);
+
+  const attendanceBreakdown = [
+    { name: 'Present', value: stats.attendance_today.present ?? 0, color: '#10b981' },
+    { name: 'On Leave', value: stats.attendance_today.on_leave ?? 0, color: '#3b82f6' },
+    { name: 'Absent', value: stats.attendance_today.absent ?? 0, color: '#ef4444' },
   ];
 
   return (
@@ -155,14 +162,14 @@ export default function DashboardCharts({ stats }: DashboardChartsProps) {
             </div>
           </div>
           
-          <div className="grid grid-cols-2 gap-3 w-full">
-            {attendanceData.map((item) => (
-              <div key={item.name} className="flex flex-col p-3 rounded-2xl bg-slate-50/50 border border-slate-100/50 text-center">
-                <div className="flex items-center justify-center gap-2 mb-1">
-                  <div className="w-2 h-2 rounded-full" style={{ background: item.color }} />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{item.name}</span>
+          <div className="grid grid-cols-3 gap-2 w-full">
+            {attendanceBreakdown.map((item) => (
+              <div key={item.name} className="flex flex-col p-2.5 rounded-2xl bg-slate-50/50 border border-slate-100/50 text-center">
+                <div className="flex items-center justify-center gap-1.5 mb-1">
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ background: item.color }} />
+                  <span className="text-[8px] font-black uppercase tracking-wider text-slate-400">{item.name}</span>
                 </div>
-                <span className="text-lg font-black text-slate-900">{item.value}</span>
+                <span className="text-base font-black text-slate-900">{item.value}</span>
               </div>
             ))}
           </div>

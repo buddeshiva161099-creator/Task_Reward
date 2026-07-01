@@ -16,7 +16,7 @@ import {
   ClipboardList, Activity, ArrowLeft, Plus, UserX, UserCheck,
   MessageSquarePlus, Play, Trash2, ChevronUp, Send,
   Eye, EyeOff, Copy, ShieldCheck, X, Phone, PhoneCall, Pencil, Award, Power, Lock, User, Shield, Building, Tag, Briefcase, Wallet, MapPin, LogIn, LogOut,
-  Umbrella, Star, Sun, History
+  Umbrella, Star, Sun, History, Layers, Users, ShieldAlert, Smartphone, AlertTriangle, Download
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { cn } from '@/lib/utils';
@@ -281,6 +281,7 @@ function EmployeeProfileContent() {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
   const [mounted, setMounted] = useState(false);
   const [empCalendarSummary, setEmpCalendarSummary] = useState<CalendarSummary | null>(null);
+  const [selectedDayDetail, setSelectedDayDetail] = useState<any | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -292,6 +293,25 @@ function EmployeeProfileContent() {
       setShowAttendanceModal(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!id || !showAttendanceModal) return;
+    let isMounted = true;
+    const fetchCalendar = async () => {
+      try {
+        const res = await api.get(`/attendance/calendar-summary/${id}?year=${selectedYear}&month=${selectedMonth}`);
+        if (isMounted) {
+          setEmpCalendarSummary(res.data || null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch calendar for selected month:", err);
+      }
+    };
+    fetchCalendar();
+    return () => {
+      isMounted = false;
+    };
+  }, [id, selectedYear, selectedMonth, showAttendanceModal]);
 
   // View Task Modal
   const [showViewModal, setShowViewModal] = useState(false);
@@ -351,6 +371,12 @@ function EmployeeProfileContent() {
   const [updatingTask, setUpdatingTask] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
 
+  const getManagerName = (managerId?: string) => {
+    if (!managerId) return 'N/A';
+    const manager = allUsers.find(u => u.id === managerId);
+    return manager ? manager.name : 'Unknown Manager';
+  };
+
   const handleEditTask = (task: Task) => {
     const date = new Date(task.deadline);
     const localDateTime = new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
@@ -376,6 +402,12 @@ function EmployeeProfileContent() {
       password: '',
       reporting_manager_id: employee.reporting_manager_id || '',
       hr_reporting_manager_id: (employee as any).hr_reporting_manager_id || '',
+      job_title: (employee as any).job_title || '',
+      department: (employee as any).department || '',
+      branch: (employee as any).branch || '',
+      hiring_company: (employee as any).hiring_company || '',
+      emergency_contact: (employee as any).emergency_contact || '',
+      hiring_date: (employee as any).hiring_date || '',
     });
     setShowEditProfileModal(true);
   };
@@ -531,6 +563,121 @@ function EmployeeProfileContent() {
     }
   };
 
+  const handleExportMonthReport = () => {
+    try {
+      const csvRows = [];
+      csvRows.push([`Employee Name:`, employee?.name || ''].join(','));
+      csvRows.push([`Email:`, employee?.email || ''].join(','));
+      csvRows.push([`Report Month:`, `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][selectedMonth]} ${selectedYear}`].join(','));
+      csvRows.push([]);
+      
+      csvRows.push(['Date', 'Day', 'Status', 'In Time (IST)', 'Out Time (IST)', 'Duration', 'Drift (Meters)', 'Flags / Remarks'].join(','));
+      
+      const daysInMonth = new Date(selectedYear, selectedMonth + 1, 0).getDate();
+      
+      const workDaysConfig = empCalendarSummary?.work_days || ['Monday','Tuesday','Wednesday','Thursday','Friday'];
+      const workDayNames = new Set(workDaysConfig.map(d => d.toLowerCase()));
+      const dayNames = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+      
+      const regularizedSet = new Set(empCalendarSummary?.regularized_dates || []);
+      const holidayMap = new Map();
+      for (const h of empCalendarSummary?.holiday_dates || []) holidayMap.set(h.date, h.name);
+      
+      const leaveDateMap = new Map();
+      for (const leave of empCalendarSummary?.leave_dates || []) {
+        const start = new Date(leave.start + 'T00:00:00');
+        const end   = new Date(leave.end   + 'T00:00:00');
+        const cur   = new Date(start);
+        while (cur <= end) {
+          const key = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+          leaveDateMap.set(key, leave.leave_type);
+          cur.setDate(cur.getDate() + 1);
+        }
+      }
+      
+      for (let d = 1; d <= daysInMonth; d++) {
+        const date = new Date(selectedYear, selectedMonth, d);
+        const dateKey = `${selectedYear}-${String(selectedMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const weekdayStr = dayNames[date.getDay()];
+        const displayWeekday = weekdayStr.charAt(0).toUpperCase() + weekdayStr.slice(1);
+        const isWorkDay = workDayNames.has(weekdayStr);
+        
+        const isHoliday = holidayMap.has(dateKey);
+        const holidayName = holidayMap.get(dateKey);
+        const isRegularized = regularizedSet.has(dateKey);
+        const leaveType = leaveDateMap.get(dateKey);
+        
+        const dayLogs = (empCalendarSummary?.attendance_logs || []).filter(log => {
+          const logDate = new Date(ensureUTC(log.check_in));
+          return logDate.getFullYear() === selectedYear && logDate.getMonth() === selectedMonth && logDate.getDate() === d;
+        });
+        
+        let statusText = 'Absent';
+        let inTimeText = '—';
+        let outTimeText = '—';
+        let durationText = '—';
+        let driftText = '—';
+        let flagsText = '';
+        
+        if (isHoliday) {
+          statusText = `Holiday (${holidayName})`;
+        } else if (dayLogs.length > 0) {
+          const firstLog = dayLogs[dayLogs.length - 1];
+          statusText = isRegularized ? 'Regularized (Present)' : 'Present';
+          
+          inTimeText = new Date(ensureUTC(firstLog.check_in)).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+          if (firstLog.check_out) {
+            outTimeText = new Date(ensureUTC(firstLog.check_out)).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+            durationText = getShiftDuration(firstLog.check_in, firstLog.check_out);
+          } else {
+            outTimeText = 'Active';
+            durationText = getActiveDuration(firstLog.check_in);
+          }
+          
+          if (firstLog.location_drift_km !== null && firstLog.location_drift_km !== undefined) {
+            driftText = `${(firstLog.location_drift_km * 1000).toFixed(0)}m`;
+          }
+          
+          const flags = [];
+          if (firstLog.is_auto_closed) flags.push('Auto-Closed');
+          if (firstLog.flags) {
+            firstLog.flags.forEach(f => flags.push(getFlagLabel(f)));
+          }
+          flagsText = flags.join(' | ');
+        } else if (isRegularized) {
+          statusText = 'Regularized (Present)';
+        } else if (leaveType) {
+          statusText = `Leave (${leaveType})`;
+        } else if (!isWorkDay) {
+          statusText = 'Weekend';
+        }
+        
+        const row = [
+          `"${dateKey}"`,
+          `"${displayWeekday}"`,
+          `"${statusText}"`,
+          `"${inTimeText}"`,
+          `"${outTimeText}"`,
+          `"${durationText}"`,
+          `"${driftText}"`,
+          `"${flagsText}"`
+        ];
+        csvRows.push(row.join(','));
+      }
+      
+      const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `${employee?.name || 'Employee'}_Attendance_Report_${selectedYear}_${selectedMonth+1}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Failed to export selected month report:', err);
+    }
+  };
+
   if (loading) {
     return <DashboardSkeleton />;
   }
@@ -608,6 +755,16 @@ function EmployeeProfileContent() {
                     </select>
                   </div>
                 </div>
+
+                <button
+                  onClick={handleExportMonthReport}
+                  className="btn btn-primary flex items-center gap-2 shadow-lg shadow-indigo-100 h-12 rounded-xl"
+                  style={{ alignSelf: 'flex-end' }}
+                >
+                  <Download className="w-4 h-4" />
+                  Export {["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][selectedMonth]} Report
+                </button>
+
                 <button
                   onClick={() => setShowAttendanceModal(false)}
                   className="w-12 h-12 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center text-slate-500 transition-all hover:rotate-90"
@@ -633,6 +790,7 @@ function EmployeeProfileContent() {
                       holidayDates={empCalendarSummary?.holiday_dates || []}
                       workDays={empCalendarSummary?.work_days}
                       workStartTime={empCalendarSummary?.work_start_time}
+                      onDayClick={(val) => setSelectedDayDetail(val)}
                     />
                   );
                 })}
@@ -789,9 +947,151 @@ function EmployeeProfileContent() {
               </div>
             </div>
           </div>
+
+      {/* ── Slide-over Drawer for Daily Attendance Details ── */}
+      {selectedDayDetail && (
+        <div className="fixed inset-0 z-50 overflow-hidden flex justify-end">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
+            onClick={() => setSelectedDayDetail(null)}
+          />
+
+          {/* Drawer content */}
+          <div className="relative w-full max-w-lg bg-white shadow-2xl h-full flex flex-col animate-in slide-in-from-right duration-300">
+            {/* Header */}
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+              <div>
+                <h3 className="font-bold text-slate-800 text-lg">Daily Attendance Review</h3>
+                <p className="text-xs font-semibold text-slate-400 mt-1">
+                  {new Date(selectedDayDetail.dateStr).toLocaleDateString('en-IN', {
+                    day: '2-digit', month: 'long', year: 'numeric', weekday: 'long'
+                  })}
+                </p>
+              </div>
+              <button 
+                onClick={() => setSelectedDayDetail(null)}
+                className="w-8 h-8 rounded-full bg-white hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Scrollable details */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Type / Status Badge */}
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                <span className="text-xs font-bold text-slate-500">Status</span>
+                <span className="px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider bg-indigo-50 text-indigo-700 border border-indigo-100">
+                  {selectedDayDetail.type}
+                </span>
+              </div>
+
+              {selectedDayDetail.log ? (
+                <>
+                  {/* Security Flag Warnings Section */}
+                  {((selectedDayDetail.log.flags && selectedDayDetail.log.flags.length > 0) || selectedDayDetail.log.is_auto_closed) && (
+                    <div className="p-4 bg-amber-50/50 rounded-2xl border-2 border-amber-200 space-y-2">
+                      <h4 className="text-xs font-extrabold text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldAlert className="w-4 h-4 text-amber-600 animate-pulse" /> Security Compliance Alerts
+                      </h4>
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {selectedDayDetail.log.is_auto_closed && (
+                          <span className="px-2 py-1 rounded-lg bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-black uppercase flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 animate-bounce" /> Auto-Closed Session
+                          </span>
+                        )}
+                        {(selectedDayDetail.log.flags || []).map((flag: string, i: number) => (
+                          <span key={i} className="px-2 py-1 rounded-lg bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-black uppercase flex items-center gap-1">
+                            <AlertTriangle className="w-3.5 h-3.5 animate-bounce" /> {getFlagLabel(flag)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Punch logs times */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-4 bg-emerald-50/40 rounded-2xl border border-emerald-100/60">
+                      <p className="text-[10px] font-black text-emerald-600 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <LogIn className="w-3.5 h-3.5" /> In Time
+                      </p>
+                      <p className="text-sm font-bold text-slate-800">
+                        {formatDateTime(selectedDayDetail.log.check_in)}
+                      </p>
+                      {selectedDayDetail.log.address_in && (
+                        <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed">
+                          📍 {selectedDayDetail.log.address_in}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="p-4 bg-rose-50/40 rounded-2xl border border-rose-100/60">
+                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <LogOut className="w-3.5 h-3.5" /> Out Time
+                      </p>
+                      <p className="text-sm font-bold text-slate-800">
+                        {selectedDayDetail.log.check_out ? formatDateTime(selectedDayDetail.log.check_out) : 'Active / Still Checked In'}
+                      </p>
+                      {selectedDayDetail.log.address_out && (
+                        <p className="text-[10px] text-slate-400 font-medium mt-1 leading-relaxed">
+                          📍 {selectedDayDetail.log.address_out}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Location Verification & Google Maps */}
+                  {selectedDayDetail.log.location_in && (
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 space-y-3">
+                      <h4 className="text-xs font-black text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                        <MapPin className="w-4 h-4 text-indigo-500" /> Geolocation Verification
+                      </h4>
+                      {selectedDayDetail.log.location_drift_km !== null && (
+                        <p className="text-xs font-bold text-slate-600">
+                          Measured Drift: <span className="text-indigo-600">{(selectedDayDetail.log.location_drift_km * 1000).toFixed(0)} meters</span>
+                        </p>
+                      )}
+                      <a 
+                        href={`https://www.google.com/maps?q=${selectedDayDetail.log.location_in.lat},${selectedDayDetail.log.location_in.lng}`}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="btn btn-secondary w-full flex items-center justify-center gap-2 h-10 text-xs font-bold rounded-xl"
+                      >
+                        <MapPin className="w-4 h-4 text-indigo-500" />
+                        View Punch Coordinates on Google Maps
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Device Fingerprint Details */}
+                  {selectedDayDetail.log.device_fingerprint && (
+                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                      <h4 className="text-xs font-black text-slate-600 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                        <Smartphone className="w-4 h-4 text-indigo-500" /> Device Signature
+                      </h4>
+                      <p className="text-xs text-slate-600 font-semibold truncate leading-relaxed bg-white p-2.5 rounded-lg border border-slate-100 font-mono select-all">
+                        {selectedDayDetail.log.device_fingerprint}
+                      </p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="p-12 text-center border border-dashed border-slate-200 rounded-3xl">
+                  <Calendar className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+                  <p className="text-xs font-bold text-slate-500">No punch records logged for this date.</p>
+                  {selectedDayDetail.tooltipText && (
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">{selectedDayDetail.tooltipText}</p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      ) : (
-        <div className="animate-in fade-in duration-500 space-y-8">
+      )}
+    </div>
+  ) : (
+    <div className="animate-in fade-in duration-500 space-y-8">
           {/* Top Navigation & Actions */}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-4">
@@ -1120,6 +1420,98 @@ function EmployeeProfileContent() {
               ) : (
                 <EmptyState title="No priority data" description="Assigned tasks will show up here." variant="small" className="flex-1" icon={ShieldCheck} />
               )}
+            </div>
+          </div>
+
+          {/* Corporate Placement & Emergency Details */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8 mb-8">
+            {/* Corporate & Position Profile Card */}
+            <div className="glass rounded-2xl p-6 border border-slate-100 shadow-sm col-span-1 lg:col-span-2 relative overflow-hidden flex flex-col justify-between">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl -mr-32 -mt-32" />
+              <div>
+                <div className="flex items-center gap-2 mb-6">
+                  <Briefcase className="w-5 h-5 text-indigo-500" />
+                  <h3 className="font-bold text-slate-800">Job Assignment & Placement</h3>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Official Designation</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <Briefcase className="w-4 h-4 text-indigo-500" /> {(employee as any).job_title || 'Not Set'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Department / Team</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-indigo-500" /> {(employee as any).department || 'Not Set'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Hiring Company Entity</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <Building className="w-4 h-4 text-indigo-500" /> {(employee as any).hiring_company || 'Not Set'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Office Location / Branch</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <MapPin className="w-4 h-4 text-indigo-500" /> {(employee as any).branch || 'Not Set'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Hiring / Start Date</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-indigo-500" /> {(employee as any).hiring_date ? new Date((employee as any).hiring_date).toLocaleDateString() : 'Not Set'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Assigned Business Unit</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <Tag className="w-4 h-4 text-indigo-500" /> {(employee as any).business_unit_name || 'Tenant Head Office (HQ)'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Governance & Hierarchy Card */}
+            <div className="glass rounded-2xl p-6 border border-slate-100 shadow-sm relative overflow-hidden flex flex-col justify-between col-span-1">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full blur-3xl -mr-32 -mt-32" />
+              <div>
+                <div className="flex items-center gap-2 mb-6">
+                  <Users className="w-5 h-5 text-indigo-500" />
+                  <h3 className="font-bold text-slate-800">Governance & Safety</h3>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Emergency Contact</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <PhoneCall className="w-4 h-4 text-emerald-500 animate-pulse" /> {(employee as any).emergency_contact || 'None Configured'}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Reporting Line (Operational)</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-indigo-500" /> {getManagerName((employee as any).reporting_manager_id)}
+                    </span>
+                  </div>
+
+                  <div className="p-3 bg-slate-50/50 rounded-xl border border-slate-100/50 flex flex-col">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Governance Partner (HR)</span>
+                    <span className="text-sm font-bold text-slate-700 mt-1 flex items-center gap-1.5">
+                      <User className="w-4 h-4 text-indigo-500" /> {getManagerName((employee as any).hr_reporting_manager_id)}
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1754,6 +2146,114 @@ function EmployeeProfileContent() {
                 </div>
               </div>
 
+              {/* Onboarding & Corporate Placement Upgrades */}
+              <div className="border-t border-slate-100 pt-4 my-4 space-y-4">
+                <div className="text-[10px] font-black uppercase text-indigo-500 tracking-wider mb-2 ml-1">
+                  Onboarding & Corporate Placement Details
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Official Designation</label>
+                    <div className="relative group">
+                      <div className="input-icon-container">
+                        <Briefcase className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        value={editEmployeeData.job_title}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, job_title: e.target.value })}
+                        className="input input-with-icon h-12 rounded-2xl"
+                        placeholder="Senior Staff Engineer"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Department / Team</label>
+                    <div className="relative group">
+                      <div className="input-icon-container">
+                        <Layers className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        value={editEmployeeData.department}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, department: e.target.value })}
+                        className="input input-with-icon h-12 rounded-2xl"
+                        placeholder="Cloud Platform"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Hiring Company Entity</label>
+                    <div className="relative group">
+                      <div className="input-icon-container">
+                        <Building className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        value={editEmployeeData.hiring_company}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, hiring_company: e.target.value })}
+                        className="input input-with-icon h-12 rounded-2xl"
+                        placeholder="Vision Tech"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Office Location / Branch</label>
+                    <div className="relative group">
+                      <div className="input-icon-container">
+                        <MapPin className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        value={editEmployeeData.branch}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, branch: e.target.value })}
+                        className="input input-with-icon h-12 rounded-2xl"
+                        placeholder="Silicon Valley HQ"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Hiring / Start Date</label>
+                    <div className="relative group">
+                      <div className="input-icon-container">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="date"
+                        value={editEmployeeData.hiring_date ? editEmployeeData.hiring_date.split('T')[0] : ''}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, hiring_date: e.target.value })}
+                        className="input input-with-icon h-12 rounded-2xl"
+                      />
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-[10px] font-black uppercase text-slate-400 tracking-widest mb-2 ml-1">Emergency Contact Info</label>
+                    <div className="relative group">
+                      <div className="input-icon-container">
+                        <PhoneCall className="w-4 h-4" />
+                      </div>
+                      <input
+                        type="text"
+                        value={editEmployeeData.emergency_contact}
+                        onChange={(e) => setEditEmployeeData({ ...editEmployeeData, emergency_contact: e.target.value })}
+                        className="input input-with-icon h-12 rounded-2xl"
+                        placeholder="Jane Doe (Wife) - +91 9999988888"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="bg-slate-50/50 rounded-2xl p-5 border border-slate-100 space-y-4 my-4">
                 <div className="text-[10px] font-black uppercase text-indigo-500 tracking-wider mb-2">
                   Reporting Requirements for "{editEmployeeData.role.replace(/_/g, ' ').toUpperCase()}"
@@ -2042,7 +2542,8 @@ function MonthCalendar({
   leaveDates = [],
   holidayDates = [],
   workDays = ['Monday','Tuesday','Wednesday','Thursday','Friday'],
-  workStartTime = '09:00'
+  workStartTime = '09:00',
+  onDayClick
 }: {
   year: number;
   month: number;
@@ -2052,6 +2553,7 @@ function MonthCalendar({
   holidayDates?: { date: string; name: string }[];
   workDays?: string[];
   workStartTime?: string;
+  onDayClick?: (dayDetail: { dateStr: string; type: string; log?: Attendance | null; tooltipText?: string | null }) => void;
 }) {
   const monthName = new Date(year, month).toLocaleString('default', { month: 'long', year: 'numeric' });
   const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -2147,7 +2649,10 @@ function MonthCalendar({
       status = 'weekend'; colorClass = 'bg-slate-100 text-slate-400';
     }
 
-    days.push({ day: d, status, symbol, colorClass, isFuture, tooltipText });
+    const hasWarnings = logs.some(log => (log.flags && log.flags.length > 0) || log.is_auto_closed);
+    const primaryLog = logs[0] || null;
+
+    days.push({ day: d, status, symbol, colorClass, isFuture, tooltipText, hasWarnings, log: primaryLog });
   }
 
   return (
@@ -2159,12 +2664,20 @@ function MonthCalendar({
         ))}
         {Array.from({ length: firstDayOfMonth }).map((_, i) => <div key={`empty-${i}`} />)}
         {days.map((d) => (
-          <div
+          <button
             key={d.day}
+            disabled={d.status === 'none'}
+            onClick={() => onDayClick?.({
+              dateStr: `${year}-${String(month+1).padStart(2,'0')}-${String(d.day).padStart(2,'0')}`,
+              type: d.status,
+              log: d.log,
+              tooltipText: d.tooltipText
+            })}
             className={cn(
-              "aspect-square flex flex-col items-center justify-center rounded-lg text-[10px] relative cursor-default",
+              "aspect-square flex flex-col items-center justify-center rounded-lg text-[10px] relative transition-all active:scale-95 duration-105 border border-transparent",
               d.colorClass,
-              d.isFuture && "opacity-20"
+              d.isFuture && "opacity-20",
+              d.hasWarnings && "border-amber-500 ring-2 ring-amber-300 ring-offset-1 animate-pulse"
             )}
             title={d.tooltipText || undefined}
           >
@@ -2174,7 +2687,12 @@ function MonthCalendar({
                 {d.symbol}
               </span>
             )}
-          </div>
+            {d.hasWarnings && (
+              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-500 text-white flex items-center justify-center font-extrabold text-[8px] border border-white shadow-sm">
+                !
+              </span>
+            )}
+          </button>
         ))}
       </div>
       <div className="space-y-1.5 bg-slate-50/50 rounded-2xl p-4 border border-slate-100">

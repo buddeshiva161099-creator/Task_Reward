@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { timeAgo, formatPreciseDateTime, cn } from '@/lib/utils';
 import {
   ClipboardList, CheckCircle2, Clock, AlertTriangle, Play,
-  Trophy, Star, Activity, Filter, Calendar, TrendingUp
+  Trophy, Star, Activity, Filter, Calendar, TrendingUp, Flame
 } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import EmptyState from '@/components/EmptyState';
@@ -109,7 +109,7 @@ export default function EmployeeDashboardPage() {
       <AIInsightPanel />
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Reward Points Card */}
         <div className="glass rounded-xl p-6 bg-gradient-to-r from-yellow-50/60 to-amber-50/60 border border-yellow-200 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
@@ -145,14 +145,34 @@ export default function EmployeeDashboardPage() {
               />
             </div>
             <p className="text-[10px] text-slate-400 font-bold flex justify-between pt-1">
-              <span>{data.completed_this_month ?? 0} of {data.due_this_month ?? 0} tasks completed this month</span>
+              <span>{data.completed_this_month ?? 0} of {data.due_this_month ?? 0} tasks completed</span>
               <span className="text-indigo-600 font-black">
-                {data.efficiency_rate >= 80 ? '⭐ Elite Performer' :
-                 data.efficiency_rate >= 65 ? '📈 Strong Pace' :
-                 data.due_this_month === 0 ? 'Idle' : '⚠️ Action Required'}
+                {data.efficiency_rate >= 80 ? '⭐ Elite' :
+                 data.efficiency_rate >= 65 ? '📈 Strong' :
+                 data.due_this_month === 0 ? 'Idle' : '⚠️ Alert'}
               </span>
             </p>
           </div>
+        </div>
+
+        {/* Attendance Streak Card */}
+        <div className="glass rounded-xl p-6 bg-gradient-to-r from-orange-50/60 to-rose-50/60 border border-orange-200 shadow-sm flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs text-slate-500 mb-1 font-bold uppercase tracking-wider">Check-in Streak</p>
+              <p className="text-4xl font-extrabold text-orange-600">
+                {data.attendance_streak ?? 0} <span className="text-xs text-slate-400 font-bold">days</span>
+              </p>
+            </div>
+            <div className="w-14 h-14 rounded-2xl bg-orange-100 flex items-center justify-center border border-orange-250">
+              <Flame className="w-7 h-7 text-orange-600 animate-pulse" />
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 font-bold mt-4">
+            {data.attendance_streak >= 5 
+              ? '🔥 You are on fire! Keep it up!' 
+              : 'Maintain consecutive check-ins to build a streak!'}
+          </p>
         </div>
       </div>
 

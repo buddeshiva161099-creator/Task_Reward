@@ -94,11 +94,16 @@ class Tenant(Document):
     attendance_bonus_threshold: float = Field(default=95.0)
     attendance_bonus_percentage: float = Field(default=5.0)
     performance_incentive_pool_percentage: float = Field(default=25.0)
+    performance_bonus_threshold: float = Field(default=80.0)
+    performance_bonus_percentage: float = Field(default=10.0)
+    performance_bonus_amount: float = Field(default=0.0)
 
     sick_leave_limit: int = Field(default=0)
     earned_leave_limit: int = Field(default=0)
     casual_leave_limit: int = Field(default=12)
     max_paid_casual_leaves_per_month: int = Field(default=1)
+    half_day_min_hours: float = Field(default=4.0)
+    full_day_min_hours: float = Field(default=8.0)
 
     class Settings:
         name = "tenants"

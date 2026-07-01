@@ -100,8 +100,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const response = await api.get('/auth/me');
       setUser(response.data);
+      if (response.data?.access_token) {
+        localStorage.setItem('access_token', response.data.access_token);
+      }
     } catch {
       localStorage.removeItem('user');
+      localStorage.removeItem('access_token');
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -146,8 +150,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     try {
       const response = await api.post('/auth/login', { email, password });
-      const { user: userData } = response.data;
+      const { user: userData, access_token } = response.data;
       localStorage.setItem('user', JSON.stringify(userData));
+      if (access_token) {
+        localStorage.setItem('access_token', access_token);
+      }
       setUser(userData);
     } catch (error) {
       console.error('Login failed:', error);
@@ -162,6 +169,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       console.error('Logout failed:', error);
     }
     localStorage.removeItem('user');
+    localStorage.removeItem('access_token');
     localStorage.removeItem(ACTIVE_BU_KEY);
     localStorage.removeItem(ACTIVE_COMPANY_KEY);
     setUser(null);

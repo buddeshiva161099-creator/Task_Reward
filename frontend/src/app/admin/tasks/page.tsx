@@ -346,8 +346,16 @@ export default function AdminTasksPage() {
       });
       fetchTasks();
     } catch (err: unknown) {
-      const axiosError = err as { response?: { data?: { detail?: string } } };
-      setError(axiosError.response?.data?.detail || 'Failed to create task');
+      const axiosError = err as { response?: { data?: { detail?: any } } };
+      const detail = axiosError.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (Array.isArray(detail)) {
+        const messages = detail.map((e: any) => `${e.loc ? e.loc.join('.') : 'field'}: ${e.msg || 'error'}`).join(', ');
+        setError(messages || 'Validation failed');
+      } else {
+        setError('Failed to create task');
+      }
     } finally {
       setCreating(false);
     }
@@ -908,9 +916,13 @@ export default function AdminTasksPage() {
                     {rule.work_description}
                   </p>
                   
-                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 font-bold text-slate-500">
+                  <div className="grid grid-cols-2 gap-y-3 gap-x-2 text-xs pt-2 font-bold text-slate-500">
                     <div>
-                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Next Run Date</span>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight">Created At</span>
+                      <span className="text-slate-700">{rule.created_at ? new Date(rule.created_at).toLocaleString() : 'N/A'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 block uppercase tracking-tight font-extrabold text-indigo-600">Next Run Date</span>
                       <span className="text-slate-700">{nextRunDate}</span>
                     </div>
                     <div>

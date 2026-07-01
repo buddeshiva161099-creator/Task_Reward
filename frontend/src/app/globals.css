@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+
 /* ──────────────────────────────────────────────────────────────
    THEME: Hardcoded values so Tailwind utilities resolve correctly.
    Using direct hex/rgba instead of var() to avoid circular references.
@@ -23,6 +24,12 @@
   --color-ring: #6366f1;
   --color-success: #10b981;
   --color-warning: #f59e0b;
+  --color-indigo-650: #4f46e5;
+  --color-indigo-750: #3730a3;
+  --color-emerald-650: #059669;
+  --color-emerald-850: #064e3b;
+  --color-rose-650: #e11d48;
+  --color-rose-850: #881337;
   --color-surface: #ffffff;
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --radius-sm: 0.375rem;
@@ -387,6 +394,12 @@ textarea.input {
   background: #ffffff;
   color: #0f172a;
 }
+.select.select-sm {
+  padding-top: 0.25rem !important;
+  padding-bottom: 0.25rem !important;
+  height: 2.5rem !important;
+  line-height: normal !important;
+}
 
 /* ── Date/time inputs dark mode fix ── */
 input[type="date"],
@@ -463,4 +476,308 @@ input[type="time"] {
     opacity: 1;
     transform: scale(1) translateY(0);
   }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   THEMES DEFINITION (DARK, CYBERPUNK, FOREST, SUNSET)
+   ────────────────────────────────────────────────────────────── */
+
+/* Theme: Slate Minimal (Dark) */
+.dark,
+[data-theme="dark"],
+.dark[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0b0f19;
+  --foreground: #f8fafc;
+  --card: #121826;
+  --card-foreground: #f8fafc;
+  --border: #1e293b;
+  --surface: #121826;
+  --secondary: #161f30;
+  --secondary-foreground: #94a3b8;
+  --muted: #0b0f19;
+  --muted-foreground: #64748b;
+  --primary: #818cf8;
+}
+
+/* Theme: Emerald Mint (Shopify/QuickBooks inspired) */
+[data-theme="mint"] {
+  --background: #f4fdf8;
+  --foreground: #052e16;
+  --card: #ffffff;
+  --card-foreground: #052e16;
+  --border: #d1fae5;
+  --surface: #ffffff;
+  --secondary: #ecfdf5;
+  --secondary-foreground: #047857;
+  --muted: #f4fdf8;
+  --muted-foreground: #10b981;
+  --primary: #059669;
+}
+
+/* Theme: Solar Amber (Notion inspired Warm Sunset) */
+[data-theme="sunset"] {
+  --background: #fdf8f5;
+  --foreground: #4c1d0c;
+  --card: #ffffff;
+  --card-foreground: #4c1d0c;
+  --border: #ffedd5;
+  --surface: #ffffff;
+  --secondary: #fff7ed;
+  --secondary-foreground: #c2410c;
+  --muted: #fdf8f5;
+  --muted-foreground: #f97316;
+  --primary: #ea580c;
+}
+
+/* Theme: Oceanic Navy (Slack/Zoom inspired) */
+.dark[data-theme="ocean"] {
+  color-scheme: dark;
+  --background: #0b1329;
+  --foreground: #f8fafc;
+  --card: #111b35;
+  --card-foreground: #f8fafc;
+  --border: #1e294b;
+  --surface: #111b35;
+  --secondary: #1a2542;
+  --secondary-foreground: #cbd5e1;
+  --muted: #0b1329;
+  --muted-foreground: #00ffff;
+  --primary: #2563eb;
+}
+
+/* Theme: Aura Purple (Discord/Stripe inspired) */
+.dark[data-theme="purple"] {
+  color-scheme: dark;
+  --background: #0b0714;
+  --foreground: #f8fafc;
+  --card: #130d22;
+  --card-foreground: #f8fafc;
+  --border: #2e1065;
+  --surface: #130d22;
+  --secondary: #1c1430;
+  --secondary-foreground: #cbd5e1;
+  --muted: #0b0714;
+  --muted-foreground: #a855f7;
+  --primary: #7c3aed;
+}
+
+/* Theme-adaptive layouts overrides */
+.dark body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+.dark .glass {
+  background: rgba(18, 24, 38, 0.75) !important;
+  border-color: var(--border) !important;
+}
+.dark .glass-strong {
+  background: rgba(18, 24, 38, 0.96) !important;
+  border-color: var(--border) !important;
+}
+
+/* Override hardcoded light backgrounds in dark layout variants */
+.dark aside,
+.dark header,
+.dark .bg-white,
+.dark .glass {
+  background-color: var(--card) !important;
+  color: var(--foreground);
+  border-color: var(--border) !important;
+}
+.dark .bg-slate-50,
+.dark .bg-slate-100 {
+  background-color: var(--background) !important;
+}
+.dark .text-slate-850,
+.dark .text-slate-900,
+.dark .text-slate-800,
+.dark .text-slate-700 {
+  color: var(--foreground) !important;
+}
+.dark .text-slate-500,
+.dark .text-slate-600,
+.dark .text-slate-450,
+.dark .text-slate-400 {
+  color: var(--muted-foreground) !important;
+}
+.dark .border-slate-50,
+.dark .border-slate-100,
+.dark .border-slate-150,
+.dark .border-slate-200 {
+  border-color: var(--border) !important;
+}
+.dark select,
+.dark input {
+  background-color: var(--background) !important;
+  border-color: var(--border) !important;
+  color: var(--foreground) !important;
+}
+
+/* Theme primary colors propagation */
+
+/* 1. Emerald Mint */
+[data-theme="mint"] body {
+  background-color: var(--background);
+}
+[data-theme="mint"] .text-indigo-600,
+[data-theme="mint"] .text-indigo-650 {
+  color: var(--primary) !important;
+}
+[data-theme="mint"] .bg-indigo-600,
+[data-theme="mint"] .bg-indigo-650 {
+  background-color: var(--primary) !important;
+}
+
+/* 2. Solar Amber */
+[data-theme="sunset"] body {
+  background-color: var(--background);
+}
+[data-theme="sunset"] .text-indigo-600,
+[data-theme="sunset"] .text-indigo-650 {
+  color: var(--primary) !important;
+}
+[data-theme="sunset"] .bg-indigo-600,
+[data-theme="sunset"] .bg-indigo-650 {
+  background-color: var(--primary) !important;
+}
+
+/* 3. Oceanic Navy */
+[data-theme="ocean"] body {
+  background-color: var(--background);
+}
+[data-theme="ocean"] .text-indigo-600,
+[data-theme="ocean"] .text-indigo-650 {
+  color: var(--primary) !important;
+}
+[data-theme="ocean"] .bg-indigo-600,
+[data-theme="ocean"] .bg-indigo-650 {
+  background-color: var(--primary) !important;
+}
+
+/* 4. Aura Purple */
+[data-theme="purple"] body {
+  background-color: var(--background);
+}
+[data-theme="purple"] .text-indigo-600,
+[data-theme="purple"] .text-indigo-650 {
+  color: var(--primary) !important;
+}
+[data-theme="purple"] .bg-indigo-600,
+[data-theme="purple"] .bg-indigo-650 {
+  background-color: var(--primary) !important;
+}
+
+
+/* 5. Cyberpunk Crimson */
+.dark[data-theme="cyberpunk"],
+[data-theme="cyberpunk"] {
+  color-scheme: dark;
+  --background: #0d0114;
+  --foreground: #fdf2f8;
+  --card: #180327;
+  --card-foreground: #fdf2f8;
+  --border: #500750;
+  --surface: #180327;
+  --secondary: #25053b;
+  --secondary-foreground: #f472b6;
+  --muted: #0d0114;
+  --muted-foreground: #ec4899;
+  --primary: #db2777;
+}
+[data-theme="cyberpunk"] body {
+  background-color: var(--background);
+}
+[data-theme="cyberpunk"] .text-indigo-600,
+[data-theme="cyberpunk"] .text-indigo-650 {
+  color: var(--primary) !important;
+}
+[data-theme="cyberpunk"] .bg-indigo-600,
+[data-theme="cyberpunk"] .bg-indigo-650 {
+  background-color: var(--primary) !important;
+}
+
+
+/* 6. Nordic Forest */
+.dark[data-theme="forest"],
+[data-theme="forest"] {
+  color-scheme: dark;
+  --background: #091312;
+  --foreground: #f1f7f6;
+  --card: #10211f;
+  --card-foreground: #f1f7f6;
+  --border: #1e3532;
+  --surface: #10211f;
+  --secondary: #162c29;
+  --secondary-foreground: #a7f3d0;
+  --muted: #091312;
+  --muted-foreground: #34d399;
+  --primary: #059669;
+}
+[data-theme="forest"] body {
+  background-color: var(--background);
+}
+[data-theme="forest"] .text-indigo-600,
+[data-theme="forest"] .text-indigo-650 {
+  color: var(--primary) !important;
+}
+[data-theme="forest"] .bg-indigo-600,
+[data-theme="forest"] .bg-indigo-650 {
+  background-color: var(--primary) !important;
+}
+
+
+/* 7. Rose Gold */
+[data-theme="rosegold"] {
+  --background: #fdfafb;
+  --foreground: #4a1d24;
+  --card: #ffffff;
+  --card-foreground: #4a1d24;
+  --border: #ffe4e6;
+  --surface: #ffffff;
+  --secondary: #fff1f2;
+  --secondary-foreground: #e11d48;
+  --muted: #fdfafb;
+  --muted-foreground: #fb7185;
+  --primary: #fda4af;
+}
+[data-theme="rosegold"] body {
+  background-color: var(--background);
+}
+[data-theme="rosegold"] .text-indigo-600,
+[data-theme="rosegold"] .text-indigo-650 {
+  color: var(--primary) !important;
+}
+[data-theme="rosegold"] .bg-indigo-600,
+[data-theme="rosegold"] .bg-indigo-650 {
+  background-color: var(--primary) !important;
+}
+
+
+/* ──────────────────────────────────────────────────────────────
+   FONT PERSONALIZATION MAPPINGS
+   ────────────────────────────────────────────────────────────── */
+html[data-font="inter"],
+html[data-font="inter"] body {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif !important;
+}
+
+html[data-font="roboto"],
+html[data-font="roboto"] body {
+  font-family: 'Roboto', sans-serif !important;
+}
+
+html[data-font="outfit"],
+html[data-font="outfit"] body {
+  font-family: 'Outfit', sans-serif !important;
+}
+
+html[data-font="mono"],
+html[data-font="mono"] body {
+  font-family: 'JetBrains Mono', monospace !important;
+}
+
+html[data-font="serif"],
+html[data-font="serif"] body {
+  font-family: 'Playfair Display', serif !important;
 }

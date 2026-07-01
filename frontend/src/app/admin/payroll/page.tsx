@@ -7,7 +7,8 @@ import { formatDate } from '@/lib/utils';
 import { 
   DollarSign, Settings, PlusCircle, Check, X, ShieldAlert, Sparkles, 
   FileText, Play, RefreshCw, Layers, Building2, User, Briefcase, 
-  AlertTriangle, CheckCircle, Eye, Printer, ArrowRight, History
+  AlertTriangle, CheckCircle, Eye, Printer, ArrowRight, History,
+  ArrowDownRight, CheckCircle2
 } from 'lucide-react';
 import { TableSkeleton, DashboardSkeleton } from '@/components/SkeletonLoaders';
 
@@ -127,17 +128,34 @@ export default function PayrollManagementPage() {
       }
     : selectedPayslip;
 
+  // Search Filter State
+  const [filterEmployeeId, setFilterEmployeeId] = useState('');
+  const [filterYear, setFilterYear] = useState('');
+  const [filterMonth, setFilterMonth] = useState('');
+
+  const fetchDrafts = async () => {
+    try {
+      const params: any = {};
+      if (filterEmployeeId) params.employee_id = filterEmployeeId;
+      if (filterYear) params.year = filterYear;
+      if (filterMonth) params.month = filterMonth;
+
+      const res = await api.get('/payroll/pending', { params });
+      setDrafts(res.data);
+    } catch (err) {
+      console.error('Error fetching filtered drafts:', err);
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [empRes, draftRes, companyRes] = await Promise.all([
+      const [empRes, companyRes] = await Promise.all([
         api.get('/admin/employees'),
-        api.get('/payroll/pending'),
         api.get('/companies'),
       ]);
       
       setEmployees(empRes.data);
-      setDrafts(draftRes.data);
       setCompanies(companyRes.data);
       
       if (companyRes.data.length > 0 && !runCompanyId) {
@@ -152,6 +170,9 @@ export default function PayrollManagementPage() {
         )
       ) as string[];
       setDepartments(depts);
+      
+      // Fetch drafts under current filter states
+      await fetchDrafts();
     } catch (err) {
       console.error('Error loading payroll admin data:', err);
     } finally {
@@ -165,6 +186,12 @@ export default function PayrollManagementPage() {
     }
   }, [isHRTeam]);
 
+  useEffect(() => {
+    if (isHRTeam) {
+      fetchDrafts();
+    }
+  }, [filterEmployeeId, filterYear, filterMonth]);
+
   const handleRunPayroll = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!runCompanyId) return alert('Please select a company.');
@@ -173,7 +200,7 @@ export default function PayrollManagementPage() {
     setRunResult(null);
     try {
       const res = await api.post('/payroll/run', {
-        company_id: runCompanyId,
+        tenant_id: runCompanyId,
         month: runMonth,
         department_id: runDept || undefined,
         employee_id: runEmployeeId || undefined
@@ -319,6 +346,14 @@ export default function PayrollManagementPage() {
     );
   }
 
+  const totalNetPayout = drafts.reduce((acc, d) => acc + (d.net_salary || 0), 0);
+  const totalDeductsAndPenalties = drafts.reduce((acc, d) => {
+    const deduct = (d.pf_deduction ?? 0) + (d.esi_deduction ?? 0) + (d.tax_deduction ?? 0) + (d.penalties ?? 0) + (d.deductions ?? 0) + (d.lop_deduction ?? 0);
+    return acc + deduct;
+  }, 0);
+  const paidRunsCount = drafts.filter(d => d.status === 'paid').length;
+  const totalRunsCount = drafts.length;
+
   return (
     <div className="space-y-8 animate-fade-in pb-12">
       <div className="flex justify-between items-center">
@@ -406,7 +441,7 @@ export default function PayrollManagementPage() {
               <button
                 type="submit"
                 disabled={runningPayroll}
-                className="w-full py-3 mt-2 rounded-xl bg-indigo-650 hover:bg-indigo-750 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full py-3 mt-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {runningPayroll ? (
                   <>
@@ -448,63 +483,87 @@ export default function PayrollManagementPage() {
               </select>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">BASIC</label>
-                <input
-                  type="number"
-                  value={basic}
-                  onChange={(e) => setBasic(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">BASIC</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={basic || ''}
+                    placeholder="0"
+                    onChange={(e) => setBasic(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-6 pr-3 py-2 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">HRA</label>
-                <input
-                  type="number"
-                  value={hra}
-                  onChange={(e) => setHra(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">HRA</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={hra || ''}
+                    placeholder="0"
+                    onChange={(e) => setHra(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-6 pr-3 py-2 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">ALLOWANCE</label>
-                <input
-                  type="number"
-                  value={special}
-                  onChange={(e) => setSpecial(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">ALLOWANCE</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={special || ''}
+                    placeholder="0"
+                    onChange={(e) => setSpecial(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-6 pr-3 py-2 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">PF DEDUCT</label>
-                <input
-                  type="number"
-                  value={pf}
-                  onChange={(e) => setPf(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">PF DEDUCT</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={pf || ''}
+                    placeholder="0"
+                    onChange={(e) => setPf(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-6 pr-3 py-2 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">ESI DEDUCT</label>
-                <input
-                  type="number"
-                  value={esi}
-                  onChange={(e) => setEsi(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">ESI DEDUCT</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={esi || ''}
+                    placeholder="0"
+                    onChange={(e) => setEsi(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-6 pr-3 py-2 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">TAX DEDUCT</label>
-                <input
-                  type="number"
-                  value={tax}
-                  onChange={(e) => setTax(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">TAX DEDUCT</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={tax || ''}
+                    placeholder="0"
+                    onChange={(e) => setTax(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-6 pr-3 py-2 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
             </div>
 
@@ -551,54 +610,74 @@ export default function PayrollManagementPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400 font-bold">OVERTIME</label>
-                <input
-                  type="number"
-                  value={overtime}
-                  onChange={(e) => setOvertime(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-1.5 focus:outline-none"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">OVERTIME</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={overtime || ''}
+                    placeholder="0"
+                    onChange={(e) => setOvertime(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-5.5 pr-2 py-1.5 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400 font-bold">INCENTIVES</label>
-                <input
-                  type="number"
-                  value={incentives}
-                  onChange={(e) => setIncentives(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-1.5 focus:outline-none"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">INCENTIVES</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={incentives || ''}
+                    placeholder="0"
+                    onChange={(e) => setIncentives(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-5.5 pr-2 py-1.5 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400 font-bold">BONUSES</label>
-                <input
-                  type="number"
-                  value={bonuses}
-                  onChange={(e) => setBonuses(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-1.5 focus:outline-none"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">BONUSES</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={bonuses || ''}
+                    placeholder="0"
+                    onChange={(e) => setBonuses(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-5.5 pr-2 py-1.5 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">PENALTIES</label>
-                <input
-                  type="number"
-                  value={penalties}
-                  onChange={(e) => setPenalties(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-1.5 focus:outline-none"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">PENALTIES</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={penalties || ''}
+                    placeholder="0"
+                    onChange={(e) => setPenalties(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-5.5 pr-2 py-1.5 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
               <div>
-                <label className="block text-[9px] font-extrabold text-slate-400">OTHER DEDUCTS</label>
-                <input
-                  type="number"
-                  value={deductions}
-                  onChange={(e) => setDeductions(parseFloat(e.target.value) || 0)}
-                  className="w-full text-xs border border-slate-200 rounded-lg p-1.5 focus:outline-none"
-                />
+                <label className="block text-[9px] font-extrabold text-slate-400 mb-1">OTHER DEDUCTS</label>
+                <div className="relative rounded-xl shadow-inner">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold font-mono">₹</span>
+                  <input
+                    type="number"
+                    value={deductions || ''}
+                    placeholder="0"
+                    onChange={(e) => setDeductions(parseFloat(e.target.value) || 0)}
+                    className="w-full text-xs border border-slate-200 rounded-xl pl-5.5 pr-2 py-1.5 bg-slate-50/50 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-right font-semibold text-slate-700"
+                  />
+                </div>
               </div>
             </div>
 
@@ -686,7 +765,7 @@ export default function PayrollManagementPage() {
 
       {/* Table of Monthly Payroll Runs / Drafts */}
       <div className="bg-white border border-slate-150 rounded-2xl p-6 shadow-sm">
-        <div className="flex justify-between items-center mb-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
           <div className="flex items-center gap-2">
             <DollarSign className="w-5 h-5 text-indigo-600" />
             <h2 className="text-lg font-bold text-slate-800">Pay Runs Pipeline</h2>
@@ -694,11 +773,120 @@ export default function PayrollManagementPage() {
           <span className="text-xs text-slate-500 font-bold">Total runs: {drafts.length}</span>
         </div>
 
+        {/* Payroll Stats Row */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6 animate-fade-in">
+          {/* Stats Card 1: Total Net Payout */}
+          <div className="bg-gradient-to-br from-indigo-50/40 to-white border border-indigo-100/60 rounded-3xl p-5 shadow-xs flex items-center gap-4 hover:shadow-md transition-all">
+            <div className="w-11 h-11 rounded-2xl bg-indigo-650/10 text-indigo-650 flex items-center justify-center font-bold">
+              <DollarSign className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase text-slate-450 tracking-wider block">Net Monthly Payout</span>
+              <span className="text-xl font-black text-slate-850">₹{totalNetPayout.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+
+          {/* Stats Card 2: Total Deductions */}
+          <div className="bg-gradient-to-br from-rose-50/40 to-white border border-rose-100/60 rounded-3xl p-5 shadow-xs flex items-center gap-4 hover:shadow-md transition-all">
+            <div className="w-11 h-11 rounded-2xl bg-rose-650/10 text-rose-650 flex items-center justify-center font-bold">
+              <ArrowDownRight className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase text-slate-450 tracking-wider block">Deductions & LOP</span>
+              <span className="text-xl font-black text-slate-850">₹{totalDeductsAndPenalties.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+            </div>
+          </div>
+
+          {/* Stats Card 3: Active Paid Runs */}
+          <div className="bg-gradient-to-br from-emerald-50/40 to-white border border-emerald-100/60 rounded-3xl p-5 shadow-xs flex items-center gap-4 hover:shadow-sm transition-all">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-650/10 text-emerald-650 flex items-center justify-center font-bold">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <span className="text-[10px] font-black uppercase text-slate-450 tracking-wider block">Execution Progress</span>
+              <span className="text-xl font-black text-slate-850">{paidRunsCount} of {totalRunsCount} Paid</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Search and Filters Controls */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 mb-6 bg-slate-50 rounded-2xl border border-slate-100">
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Employee</label>
+            <select
+              value={filterEmployeeId}
+              onChange={(e) => setFilterEmployeeId(e.target.value)}
+              className="w-full text-xs border border-slate-200 rounded-xl p-2 bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+            >
+              <option value="">All Employees</option>
+              {employees.map((emp) => (
+                <option key={emp.id} value={emp.id}>{emp.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Year</label>
+            <select
+              value={filterYear}
+              onChange={(e) => setFilterYear(e.target.value)}
+              className="w-full text-xs border border-slate-200 rounded-xl p-2 bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+            >
+              <option value="">All Years</option>
+              <option value="2026">2026</option>
+              <option value="2025">2025</option>
+              <option value="2024">2024</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Month</label>
+            <select
+              value={filterMonth}
+              onChange={(e) => setFilterMonth(e.target.value)}
+              className="w-full text-xs border border-slate-200 rounded-xl p-2 bg-white focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+            >
+              <option value="">All Months</option>
+              <option value="01">January</option>
+              <option value="02">February</option>
+              <option value="03">March</option>
+              <option value="04">April</option>
+              <option value="05">May</option>
+              <option value="06">June</option>
+              <option value="07">July</option>
+              <option value="08">August</option>
+              <option value="09">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+          <div className="flex items-end">
+            {(filterEmployeeId || filterYear || filterMonth) ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterEmployeeId('');
+                  setFilterYear('');
+                  setFilterMonth('');
+                }}
+                className="w-full h-9 border border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-semibold text-xs rounded-xl transition-all"
+              >
+                Clear Filters
+              </button>
+            ) : (
+              <div className="w-full text-center text-[10px] text-slate-400 font-medium py-2.5">
+                No active filters
+              </div>
+            )}
+          </div>
+        </div>
+
         {loading ? (
           <TableSkeleton cols={9} rows={8} />
         ) : drafts.length === 0 ? (
           <div className="text-center py-12 text-slate-400 text-sm">
-            No active payroll runs found. Use the Batch Payroll Console to trigger calculated drafts.
+            {(filterEmployeeId || filterYear || filterMonth)
+              ? 'No payroll runs found matching the selected search criteria.'
+              : 'No active payroll runs found. Use the Batch Payroll Console to trigger calculated drafts.'}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -746,16 +934,23 @@ export default function PayrollManagementPage() {
                         <td className="py-4 px-3 text-right text-emerald-700">₹{(totalEarnings ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                         <td className="py-4 px-3 text-right text-rose-700">₹{(totalDeducts ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
                         <td className="py-4 px-3 text-right text-amber-700 font-semibold">₹{(d.lop_deduction ?? 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</td>
-                        <td className="py-4 px-3 text-right font-black text-indigo-700">₹{(d.net_salary ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="py-4 px-3 text-right font-black text-indigo-650 bg-indigo-50/10">₹{(d.net_salary ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                         <td className="py-4 px-4 text-center">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider border ${
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-wider border ${
                             d.status === 'draft' ? 'bg-amber-50 text-amber-700 border-amber-200' :
                             d.status === 'under_review' ? 'bg-blue-50 text-blue-700 border-blue-200' :
                             d.status === 'approved' ? 'bg-violet-50 text-violet-700 border-violet-200' :
-                            d.status === 'locked' ? 'bg-indigo-50 text-indigo-700 border-indigo-200' :
+                            d.status === 'locked' ? 'bg-slate-100 text-slate-800 border-slate-200' :
                             'bg-emerald-50 text-emerald-700 border-emerald-200'
                           }`}>
-                            {d.status.replace('_', ' ')}
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              d.status === 'draft' ? 'bg-amber-500' :
+                              d.status === 'under_review' ? 'bg-blue-500' :
+                              d.status === 'approved' ? 'bg-violet-500' :
+                              d.status === 'locked' ? 'bg-slate-550' :
+                              'bg-emerald-500'
+                            }`} />
+                            <span>{d.status.replace('_', ' ')}</span>
                           </span>
                         </td>
                         <td className="py-4 px-4 text-right">

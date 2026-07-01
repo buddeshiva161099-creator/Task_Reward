@@ -48,6 +48,7 @@ class User(Document):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: Optional[datetime] = None
     last_active: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    profile_picture: Optional[str] = None
 
     identity_card_type: Optional[str] = None
     identity_card_url: Optional[str] = None

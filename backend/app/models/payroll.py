@@ -48,13 +48,13 @@ class Payroll(Document):
     tax_deduction: float = Field(default=0.0)
     
     # Days details
-    present_days: int = Field(default=0)
-    absent_days: int = Field(default=0)
-    paid_leaves: int = Field(default=0)
-    approved_regularization_days: int = Field(default=0)
-    payable_days: int = Field(default=0)
-    holidays_weekends: int = Field(default=0)
-    total_working_days: int = Field(default=0)
+    present_days: float = Field(default=0.0)
+    absent_days: float = Field(default=0.0)
+    paid_leaves: float = Field(default=0.0)
+    approved_regularization_days: float = Field(default=0.0)
+    payable_days: float = Field(default=0.0)
+    holidays_weekends: float = Field(default=0.0)
+    total_working_days: float = Field(default=0.0)
     
     # Financial details
     base_salary: float = Field(default=0.0)

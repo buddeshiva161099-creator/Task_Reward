@@ -27,6 +27,8 @@ _TENANT_ALLOWLIST = {
 
 async def exception_handler_middleware(request: Request, call_next):
     """Catch-all exception handler to ensure consistent error responses."""
+    if request.scope.get("type") == "websocket":
+        return await call_next(request)
     try:
         return await call_next(request)
     except ValidationError as e:
@@ -55,6 +57,8 @@ async def tenant_status_middleware(request: Request, call_next):
     Suspended tenants may still log in (so they can see the suspension) but
     all other endpoints return HTTP 402 Payment Required.
     """
+    if request.scope.get("type") == "websocket":
+        return await call_next(request)
     from app.models.user import User
     from app.models.tenant import Tenant
 
@@ -110,6 +114,8 @@ async def tenant_status_middleware(request: Request, call_next):
 
 async def security_headers_middleware(request: Request, call_next):
     """Append security headers to all responses and remove info disclosure headers."""
+    if request.scope.get("type") == "websocket":
+        return await call_next(request)
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'; object-src 'none';"
     response.headers["X-Content-Type-Options"] = "nosniff"

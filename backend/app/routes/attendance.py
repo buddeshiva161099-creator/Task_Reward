@@ -9,6 +9,7 @@ from app.services.geofence_utils import (
 )
 from datetime import datetime, timedelta, timezone
 from app.models.attendance import Attendance, ist_now, IST
+from app.models.shift import Shift, ShiftAssignment
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from beanie import PydanticObjectId
@@ -137,13 +138,30 @@ async def check_in(
         if last_attendance and last_attendance.device_fingerprint != req.device_fingerprint:
             device_flags.append("device_changed")
 
+    # --- SHIFT AWARE WORK TIMINGS ---
+    active_shift = None
+    shift_assignment = await ShiftAssignment.find_one(
+        ShiftAssignment.user_id == current_user.id,
+        ShiftAssignment.start_date <= now_utc,
+        ShiftAssignment.end_date >= now_utc
+    )
+    if shift_assignment:
+        active_shift = await Shift.get(shift_assignment.shift_id)
+
+    # Determine timing and grace period parameters
+    work_start_time = tenant.work_start_time if tenant else "09:00"
+    grace_minutes = 30.0
+    if active_shift:
+        work_start_time = active_shift.start_time
+        grace_minutes = float(active_shift.grace_period_minutes)
+
     # --- LATE STATUS CALCULATION ---
     status_str = "present"
-    if tenant and tenant.work_start_time:
+    if work_start_time:
         try:
             # Robust parsing of various formats (e.g., "09:30 AM", "9:00AM", "14:00")
             work_start = None
-            raw_time = tenant.work_start_time.strip().upper()
+            raw_time = work_start_time.strip().upper()
             
             formats = ["%I:%M %p", "%I:%M%p", "%H:%M"]
             for fmt in formats:
@@ -158,12 +176,12 @@ async def check_in(
                 work_start_dt = now_ist.replace(hour=work_start.hour, minute=work_start.minute, second=0, microsecond=0)
                 if now_ist > work_start_dt:
                     diff_minutes = (now_ist - work_start_dt).total_seconds() / 60.0
-                    if diff_minutes <= 30.0:
+                    if diff_minutes <= grace_minutes:
                         status_str = "late_under_30"
                     else:
                         status_str = "late_over_30"
             else:
-                logger.warning(f"Could not parse work_start_time: {tenant.work_start_time}")
+                logger.warning(f"Could not parse work_start_time: {work_start_time}")
         except Exception as e:
             logger.error(f"Error calculating late status: {e}")
 
@@ -274,11 +292,54 @@ async def check_out(
                 checkout_flags.append(f"location_drift_{drift_km}km")
 
     # Update attendance record
-    attendance.check_out = datetime.now(timezone.utc)
+    now_utc = datetime.now(timezone.utc)
+    attendance.check_out = now_utc
     attendance.location_out = {"lat": req.lat, "lng": req.lng}
     attendance.address_out = req.address
     attendance.location_drift_km = drift_km
     attendance.distance_from_office_out = distance_from_office_out
+    
+    # Calculate worked duration and assign correct daily status based on thresholds
+    if attendance.check_in:
+        duration_hours = (now_utc - attendance.check_in).total_seconds() / 3600.0
+        half_day_min = getattr(tenant, "half_day_min_hours", 4.0)
+        full_day_min = getattr(tenant, "full_day_min_hours", 8.0)
+        
+        # Check early checkout
+        is_early_checkout = False
+        if tenant and tenant.work_end_time:
+            try:
+                work_end = None
+                raw_end_time = tenant.work_end_time.strip().upper()
+                formats = ["%I:%M %p", "%I:%M%p", "%H:%M"]
+                for fmt in formats:
+                    try:
+                        work_end = datetime.strptime(raw_end_time, fmt)
+                        break
+                    except ValueError:
+                        continue
+                if work_end:
+                    from app.models.attendance import IST
+                    now_ist = now_utc.astimezone(IST)
+                    work_end_dt = now_ist.replace(hour=work_end.hour, minute=work_end.minute, second=0, microsecond=0)
+                    if now_ist < work_end_dt:
+                        is_early_checkout = True
+            except Exception as e:
+                logger.error(f"Error calculating early checkout status: {e}")
+                
+        if is_early_checkout and "early_checkout" not in checkout_flags:
+            checkout_flags.append("early_checkout")
+
+        if duration_hours < half_day_min:
+            attendance.status = "half_day_absent"
+        elif duration_hours < full_day_min:
+            attendance.status = "half_day_present"
+        elif is_early_checkout:
+            if "late" in (attendance.status or ""):
+                attendance.status = "late_and_early_checkout"
+            else:
+                attendance.status = "early_checkout"
+
     attendance.flags = checkout_flags
     await attendance.save()
     
@@ -378,6 +439,31 @@ async def get_summary(
     from app.services.user_service import get_visible_employee_ids
     visible_ids = await get_visible_employee_ids(current_user)
     return await dashboard_service.get_all_attendance_summary(
+        visible_employee_ids=visible_ids,
+        business_unit_id=active_bu_id,
+        tenant_id=current_user.tenant_id,
+    )
+
+
+@router.get("/monthly-summary")
+async def get_monthly_summary(
+    year: int,
+    month: int,
+    current_user: User = Depends(get_current_user),
+    active_bu_id = Depends(get_active_business_unit_id),
+):
+    """Get attendance monthly summary. Admin/HR see all; Managers see their hierarchy."""
+    if current_user.role not in [
+        UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
+        UserRole.MANAGER, UserRole.ASSISTANT_MANAGER
+    ]:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    from app.services import dashboard_service
+    from app.services.user_service import get_visible_employee_ids
+    visible_ids = await get_visible_employee_ids(current_user)
+    return await dashboard_service.get_monthly_attendance_summary(
+        year=year,
+        month=month,
         visible_employee_ids=visible_ids,
         business_unit_id=active_bu_id,
         tenant_id=current_user.tenant_id,
@@ -524,14 +610,12 @@ async def get_my_calendar_summary(current_user: User = Depends(get_current_user)
 @router.get("/calendar-summary/{employee_id}")
 async def get_employee_calendar_summary(
     employee_id: str,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
     current_user: User = Depends(get_current_user)
 ):
-    """Returns enriched calendar data for a specific employee's last 90 days attendance:
-    - attendance logs (raw check-in/out records)
-    - approved regularization dates (YYYY-MM-DD strings, IST)
-    - approved leave date ranges with details
-    - holiday dates (global + tenant-specific)
-    - tenant work_days config and work_start_time
+    """Returns enriched calendar data for a specific employee's attendance window.
+    Supports selecting custom year/month window.
     """
     if current_user.role not in [
         UserRole.ADMIN, UserRole.HR_MANAGER, UserRole.ASSISTANT_HR_MANAGER,
@@ -567,24 +651,41 @@ async def get_employee_calendar_summary(
     work_days = tenant.work_days if tenant else ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
     work_start_time = tenant.work_start_time if tenant else "09:00"
 
-    # Last 90 days window
-    now_ist = ist_now()
-    today_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
-    history_start = today_start - timedelta(days=89)
+    # Last 90 days window or custom month range
+    if year is not None and month is not None:
+        import calendar
+        target_month = month + 1
+        last_day = calendar.monthrange(year, target_month)[1]
+        history_end = datetime(year, target_month, last_day, 23, 59, 59, tzinfo=IST)
+        
+        start_year = year
+        start_month = target_month - 2
+        if start_month <= 0:
+            start_month += 12
+            start_year -= 1
+        history_start = datetime(start_year, start_month, 1, 0, 0, 0, tzinfo=IST)
+    else:
+        now_ist = ist_now()
+        today_start = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        history_start = today_start - timedelta(days=89)
+        history_end = None
 
     # Raw attendance logs
-    attendance_logs = await Attendance.find(
-        Attendance.user_id == employee.id,
-        Attendance.check_in >= history_start
-    ).sort(-Attendance.check_in).to_list()
+    log_query = [Attendance.user_id == employee.id, Attendance.check_in >= history_start]
+    if history_end:
+        log_query.append(Attendance.check_in <= history_end)
+    attendance_logs = await Attendance.find(*log_query).sort(-Attendance.check_in).to_list()
     logs_data = [_build_response(log, employee) for log in attendance_logs]
 
     # Approved regularizations
-    all_approved_regs = await AttendanceRegularization.find(
+    reg_query = [
         AttendanceRegularization.user_id == employee.id,
         AttendanceRegularization.status == RegularizationStatus.APPROVED,
         AttendanceRegularization.created_at >= history_start
-    ).to_list()
+    ]
+    if history_end:
+        reg_query.append(AttendanceRegularization.created_at <= history_end)
+    all_approved_regs = await AttendanceRegularization.find(*reg_query).to_list()
 
     attendance_id_map = {str(log.id): log for log in attendance_logs}
     regularized_dates: list[str] = []
@@ -606,11 +707,14 @@ async def get_employee_calendar_summary(
             })
 
     # Approved leaves
-    approved_leaves = await Leave.find(
+    leave_query = [
         Leave.user_id == employee.id,
         Leave.status == LeaveStatus.APPROVED,
         Leave.end_date >= history_start
-    ).to_list()
+    ]
+    if history_end:
+        leave_query.append(Leave.start_date <= history_end)
+    approved_leaves = await Leave.find(*leave_query).to_list()
 
     leave_dates: list[dict] = []
     for leave in approved_leaves:
@@ -623,11 +727,14 @@ async def get_employee_calendar_summary(
             "comments": leave.comments,
         })
 
-    # Holidays (global + tenant-specific) within the 90-day window
-    holidays_list = await Holiday.find(
+    # Holidays (global + tenant-specific) within the range
+    holiday_query = [
         Holiday.date >= history_start,
         Or(Holiday.tenant_id == employee.tenant_id, Holiday.tenant_id == None)
-    ).to_list()
+    ]
+    if history_end:
+        holiday_query.append(Holiday.date <= history_end)
+    holidays_list = await Holiday.find(*holiday_query).to_list()
 
     holiday_dates: list[dict] = [
         {

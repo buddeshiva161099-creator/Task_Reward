@@ -7,7 +7,8 @@ from app.auth.dependencies import get_current_user, require_management_team
 from app.auth.tenant_scope import get_active_business_unit_id
 from app.models.user import User, UserRole
 from app.services import ai_service
-from typing import Optional, Dict, Any
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
 import pandas as pd
 from io import BytesIO
 import openpyxl
@@ -65,17 +66,26 @@ async def get_attendance_intelligence(
     return await ai_service.run_attendance_analysis(scope, current_user.tenant_id, business_unit_id=active_bu_id)
 
 
+class AssistantPayload(BaseModel):
+    message: str
+    history: List[Dict[str, str]] = []
+
+
 @router.post("/assistant")
 async def ask_ai_assistant(
-    payload: Dict[str, str] = Body(...),
+    payload: AssistantPayload,
     current_user: User = Depends(get_current_user),
     active_bu_id = Depends(get_active_business_unit_id),
 ):
     """In-app chat copilot accepting natural queries and returning permission-safe data insights."""
-    message = payload.get("message", "")
-    if not message.strip():
+    if not payload.message.strip():
         raise HTTPException(status_code=400, detail="Message content cannot be empty.")
-    return await ai_service.run_ai_copilot_assistant(message, current_user, business_unit_id=active_bu_id)
+    return await ai_service.run_ai_copilot_assistant(
+        user_message=payload.message,
+        current_user=current_user,
+        business_unit_id=active_bu_id,
+        history=payload.history
+    )
 
 
 @router.get("/reports/export")

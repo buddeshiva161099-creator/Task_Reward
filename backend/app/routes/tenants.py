@@ -40,6 +40,8 @@ class CreateTenantRequest(BaseModel):
     earned_leave_limit: Optional[int] = 0
     casual_leave_limit: Optional[int] = 12
     max_paid_casual_leaves_per_month: Optional[int] = 1
+    half_day_min_hours: Optional[float] = 4.0
+    full_day_min_hours: Optional[float] = 8.0
 
 
 class UpdateTenantRequest(BaseModel):
@@ -65,6 +67,11 @@ class UpdateTenantRequest(BaseModel):
     earned_leave_limit: Optional[int] = None
     casual_leave_limit: Optional[int] = None
     max_paid_casual_leaves_per_month: Optional[int] = None
+    half_day_min_hours: Optional[float] = None
+    full_day_min_hours: Optional[float] = None
+    performance_bonus_threshold: Optional[float] = None
+    performance_bonus_percentage: Optional[float] = None
+    performance_bonus_amount: Optional[float] = None
     # Geofence & attendance policy
     office_lat: Optional[float] = None
     office_lng: Optional[float] = None
@@ -100,6 +107,11 @@ class TenantResponse(BaseModel):
     earned_leave_limit: int
     casual_leave_limit: int
     max_paid_casual_leaves_per_month: int
+    half_day_min_hours: float
+    full_day_min_hours: float
+    performance_bonus_threshold: float = 80.0
+    performance_bonus_percentage: float = 10.0
+    performance_bonus_amount: float = 0.0
     # Geofence & attendance policy
     office_lat: Optional[float] = None
     office_lng: Optional[float] = None
@@ -170,6 +182,11 @@ def _build_company_response(c: Tenant) -> TenantResponse:
         earned_leave_limit=c.earned_leave_limit,
         casual_leave_limit=c.casual_leave_limit,
         max_paid_casual_leaves_per_month=c.max_paid_casual_leaves_per_month,
+        half_day_min_hours=c.half_day_min_hours,
+        full_day_min_hours=c.full_day_min_hours,
+        performance_bonus_threshold=c.performance_bonus_threshold,
+        performance_bonus_percentage=c.performance_bonus_percentage,
+        performance_bonus_amount=c.performance_bonus_amount,
         # Geofence & attendance policy
         office_lat=c.office_lat,
         office_lng=c.office_lng,
@@ -218,10 +235,15 @@ async def save_policy_version(company: Tenant, actor_id: Optional[PydanticObject
         "attendance_bonus_threshold": company.attendance_bonus_threshold,
         "attendance_bonus_percentage": company.attendance_bonus_percentage,
         "performance_incentive_pool_percentage": company.performance_incentive_pool_percentage,
+        "performance_bonus_threshold": company.performance_bonus_threshold,
+        "performance_bonus_percentage": company.performance_bonus_percentage,
+        "performance_bonus_amount": company.performance_bonus_amount,
         "sick_leave_limit": company.sick_leave_limit,
         "earned_leave_limit": company.earned_leave_limit,
         "casual_leave_limit": company.casual_leave_limit,
         "max_paid_casual_leaves_per_month": company.max_paid_casual_leaves_per_month,
+        "half_day_min_hours": company.half_day_min_hours,
+        "full_day_min_hours": company.full_day_min_hours,
     }
     version_doc = PolicyVersion(**policy_data)
     await version_doc.insert()
@@ -230,15 +252,21 @@ async def save_policy_version(company: Tenant, actor_id: Optional[PydanticObject
 
 @router.get("", response_model=List[TenantResponse])
 async def list_companies(current_user: User = Depends(get_current_user)):
-    """List all active tenants."""
-    tenants = await Tenant.find(Tenant.is_active == True).sort("name").to_list()
+    """List active tenants scoped to the user's company or all if platform owner."""
+    if current_user.tenant_id:
+        tenants = await Tenant.find(Tenant.id == current_user.tenant_id, Tenant.is_active == True).sort("name").to_list()
+    else:
+        tenants = await Tenant.find(Tenant.is_active == True).sort("name").to_list()
     return [_build_company_response(c) for c in tenants]
 
 
 @router.get("/all", response_model=List[TenantResponse])
 async def list_all_companies(admin: User = Depends(require_admin)):
-    """List all tenants including inactive (admin only)."""
-    tenants = await Tenant.find().sort("-created_at").to_list()
+    """List all tenants scoped to user's company or all if platform owner."""
+    if admin.tenant_id:
+        tenants = await Tenant.find(Tenant.id == admin.tenant_id).sort("-created_at").to_list()
+    else:
+        tenants = await Tenant.find().sort("-created_at").to_list()
     return [_build_company_response(c) for c in tenants]
 
 
@@ -248,7 +276,12 @@ async def create_company(
     http_request: Request,
     admin: User = Depends(require_admin),
 ):
-    """Create a new company (admin only)."""
+    """Create a new company (platform owner only)."""
+    if admin.tenant_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only platform owners can create new tenants.",
+        )
     existing = await Tenant.find_one(Tenant.name == request.name)
     if existing:
         raise HTTPException(
@@ -306,6 +339,12 @@ async def update_company(
     company = await Tenant.get(PydanticObjectId(company_id))
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    if user.tenant_id is not None and company.id != user.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You cannot modify settings of another company.",
+        )
 
     before_state = company.model_dump()
     # Detect if work_start_time is changing
@@ -418,6 +457,12 @@ async def delete_company(
     company = await Tenant.get(PydanticObjectId(company_id))
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    if admin.tenant_id is not None and company.id != admin.tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You cannot deactivate another company.",
+        )
 
     await company.set({"is_active": False})
     return {"message": f"Tenant '{company.name}' deactivated"}

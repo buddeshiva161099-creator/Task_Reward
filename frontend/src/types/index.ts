@@ -13,6 +13,7 @@ export interface User {
   mobile?: string;
   alternate_mobile?: string;
   must_change_password?: boolean;
+  profile_picture?: string | null;
 }
 
 export interface RemarkEntry {
@@ -72,6 +73,8 @@ export interface TenantPolicy {
   earned_leave_limit?: number;
   casual_leave_limit?: number;
   max_paid_casual_leaves_per_month?: number;
+  half_day_min_hours?: number;
+  full_day_min_hours?: number;
   task_priority_points?: any;
   delay_penalties?: any;
   early_completion_multiplier?: number;
@@ -80,6 +83,9 @@ export interface TenantPolicy {
   attendance_bonus_threshold?: number;
   attendance_bonus_percentage?: number;
   performance_incentive_pool_percentage?: number;
+  performance_bonus_threshold?: number;
+  performance_bonus_percentage?: number;
+  performance_bonus_amount?: number;
 }
 
 export interface Company {
@@ -344,10 +350,15 @@ export interface Tenant {
   attendance_bonus_threshold?: number;
   attendance_bonus_percentage?: number;
   performance_incentive_pool_percentage?: number;
+  performance_bonus_threshold?: number;
+  performance_bonus_percentage?: number;
+  performance_bonus_amount?: number;
   sick_leave_limit?: number;
   earned_leave_limit?: number;
   casual_leave_limit?: number;
   max_paid_casual_leaves_per_month?: number;
+  half_day_min_hours?: number;
+  full_day_min_hours?: number;
 }
 
 export interface SubscriptionPlan {

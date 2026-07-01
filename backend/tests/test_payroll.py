@@ -331,7 +331,78 @@ async def test_get_payroll_history_endpoint():
         data = response.json()
         assert len(data) == 1
         assert data[0]["version_number"] == 1
-        # Check that user_id inside the snapshot was serialized successfully as a string
-        assert isinstance(data[0]["snapshot"]["user_id"], str)
         assert data[0]["snapshot"]["user_id"] == str(user.id)
+
+
+@pytest.mark.asyncio
+async def test_calculate_corporate_payroll_half_day():
+    company = Tenant(name="Test Corp Half Day", half_day_min_hours=4.0, full_day_min_hours=8.0)
+    await company.insert()
+
+    user = User(
+        email="test_hd@example.com",
+        name="Test User Half Day",
+        role=UserRole.EMPLOYEE,
+        tenant_id=company.id,
+        hiring_date="2024-05-01",
+        password_hash="mock_hash"
+    )
+    await user.insert()
+
+    struct = SalaryStructure(
+        user_id=user.id,
+        basic=10000,
+        hra=5000,
+        special_allowance=5000,
+        pf_deduction=1000,
+        tax_deduction=500
+    )
+    await struct.insert()
+
+    # May 1 (Wed) - worked 5 hours (Half Day Present)
+    # May 2 (Thu) - worked 2 hours (Half Day Absent)
+    # May 3 (Fri) - worked 9 hours (Full Day Present)
+    
+    # May 1 check-in/out
+    check_in_1 = datetime(2024, 5, 1, 9, 0, tzinfo=timezone.utc)
+    check_out_1 = check_in_1 + timedelta(hours=5)
+    attn_1 = Attendance(
+        user_id=user.id,
+        tenant_id=company.id,
+        check_in=check_in_1,
+        check_out=check_out_1,
+        status="half_day_present"
+      )
+    await attn_1.insert()
+
+    # May 2 check-in/out
+    check_in_2 = datetime(2024, 5, 2, 9, 0, tzinfo=timezone.utc)
+    check_out_2 = check_in_2 + timedelta(hours=2)
+    attn_2 = Attendance(
+        user_id=user.id,
+        tenant_id=company.id,
+        check_in=check_in_2,
+        check_out=check_out_2,
+        status="half_day_absent"
+    )
+    await attn_2.insert()
+
+    # May 3 check-in/out
+    check_in_3 = datetime(2024, 5, 3, 9, 0, tzinfo=timezone.utc)
+    check_out_3 = check_in_3 + timedelta(hours=9)
+    attn_3 = Attendance(
+        user_id=user.id,
+        tenant_id=company.id,
+        check_in=check_in_3,
+        check_out=check_out_3,
+        status="present"
+    )
+    await attn_3.insert()
+
+    payroll = await calculate_corporate_payroll(user, "2024-05")
+
+    # Wed (0.5 present), Thu (0.0 present), Fri (1.0 present)
+    # Total present = 1.5 days.
+    assert payroll.present_days == 1.5
+
 

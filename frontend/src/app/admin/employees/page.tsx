@@ -7,7 +7,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import UserLink from '@/components/UserLink';
 import { formatDate } from '@/lib/utils';
 import {
-  Users, Plus, Search, UserCheck, UserX, Trophy, X, Mail, Lock, User, Eye, EyeOff, Shield, Briefcase, Loader2, UserPlus, Phone, PhoneCall, Trash2, Edit2, Check, Copy, ArrowRight, ArrowLeft, Calendar, MapPin, Layers, Wallet
+  Users, Plus, Search, UserCheck, UserX, Trophy, X, Mail, Lock, User, Eye, EyeOff, Shield, Briefcase, Loader2, UserPlus, Phone, PhoneCall, Trash2, Edit2, Check, Copy, ArrowRight, ArrowLeft, Calendar, MapPin, Layers, Wallet, Download
 } from 'lucide-react';
 import Link from 'next/link';
 import { TableSkeleton } from '@/components/SkeletonLoaders';
@@ -71,6 +71,7 @@ export default function EmployeesPage() {
 
   // Role Pill Filter State
   const [selectedRoleFilter, setSelectedRoleFilter] = useState<string>('all');
+  const [filterBusinessUnit, setFilterBusinessUnit] = useState<string>('');
 
   const fetchEmployees = useCallback(async () => {
     try {
@@ -91,6 +92,84 @@ export default function EmployeesPage() {
       console.error('Failed to fetch all users:', err);
     }
   }, []);
+
+  const handleExportCSV = () => {
+    if (filtered.length === 0) return;
+    const headers = [
+      'Name',
+      'Email',
+      'Role',
+      'Status',
+      'Reward Points',
+      'Joined Date',
+      'Job Title',
+      'Department',
+      'Branch',
+      'Hiring Company'
+    ];
+    const csvRows = [
+      headers.join(','),
+      ...filtered.map(emp => {
+        const row = [
+          `"${emp.name.replace(/"/g, '""')}"`,
+          `"${emp.email.replace(/"/g, '""')}"`,
+          `"${emp.role.replace(/_/g, ' ').toUpperCase()}"`,
+          `"${emp.is_active ? 'ACTIVE' : 'INACTIVE'}"`,
+          emp.reward_points,
+          `"${emp.created_at ? new Date(emp.created_at).toLocaleDateString() : ''}"`,
+          `"${(emp.job_title || '').replace(/"/g, '""')}"`,
+          `"${(emp.department || '').replace(/"/g, '""')}"`,
+          `"${(emp.branch || '').replace(/"/g, '""')}"`,
+          `"${(emp.hiring_company || '').replace(/"/g, '""')}"`
+        ];
+        return row.join(',');
+      })
+    ];
+    const csvContent = 'data:text/csv;charset=utf-8,' + csvRows.join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.setAttribute('download', `TaskReward_Roster_${dateStr}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleQuickRewardPoints = async (empId: string, currentPoints: number) => {
+    const input = prompt(`Enter points to add or deduct for this employee:\n(e.g., enter 10 to reward 10 points, or -5 to deduct 5 points)`);
+    if (input === null) return;
+    const parsed = parseFloat(input);
+    if (isNaN(parsed) || parsed === 0) {
+      alert('Please enter a valid non-zero number.');
+      return;
+    }
+    const newTotal = Math.max(0, currentPoints + parsed);
+    try {
+      await api.put(`/admin/employees/${empId}`, { reward_points: newTotal });
+      setEmployees(prev => prev.map(e => e.id === empId ? { ...e, reward_points: newTotal } : e));
+      setAllUsers(prev => prev.map(e => e.id === empId ? { ...e, reward_points: newTotal } : e));
+    } catch (err) {
+      console.error('Failed to quick-adjust points:', err);
+      alert('Failed to update reward points. Please ensure you have HR or Admin permissions.');
+    }
+  };
+
+  const calculateProfileCompleteness = (emp: Employee) => {
+    const fields = [
+      emp.name,
+      emp.email,
+      emp.mobile,
+      emp.job_title,
+      emp.department,
+      emp.branch,
+      emp.emergency_contact,
+      emp.business_unit_id,
+      emp.hiring_company
+    ];
+    const filledFields = fields.filter(field => field && String(field).trim().length > 0);
+    return Math.round((filledFields.length / fields.length) * 100);
+  };
 
   useEffect(() => {
     fetchEmployees();
@@ -376,6 +455,7 @@ HR Operations & Management`;
   const filtered = employees.filter(
     (e) =>
       (selectedRoleFilter === 'all' || e.role === selectedRoleFilter) &&
+      (!filterBusinessUnit || e.business_unit_id === filterBusinessUnit) &&
       (e.name.toLowerCase().includes(search.toLowerCase()) ||
        e.email.toLowerCase().includes(search.toLowerCase()))
   );
@@ -410,18 +490,74 @@ HR Operations & Management`;
               : 'Manage team members, hierarchy reporting, and corporate credentials'}
           </p>
         </div>
-        <button
-          id="create-employee-btn"
-          onClick={() => {
-            setShowCreateModal(true);
-            setActiveStep(1);
-            generateTempPassword();
-          }}
-          className="btn btn-primary shadow-lg shadow-indigo-100"
-        >
-          <Plus className="w-4 h-4" />
-          Add {isManagementOnly ? 'Team Member' : 'Employee'}
-        </button>
+        <div className="flex items-center gap-3">
+          {filtered.length > 0 && (
+            <button
+              onClick={handleExportCSV}
+              className="btn btn-secondary shadow-sm inline-flex items-center gap-2"
+            >
+              <Download className="w-4 h-4" />
+              Export Roster
+            </button>
+          )}
+          <button
+            id="create-employee-btn"
+            onClick={() => {
+              setShowCreateModal(true);
+              setActiveStep(1);
+              generateTempPassword();
+            }}
+            className="btn btn-primary shadow-lg shadow-indigo-100"
+          >
+            <Plus className="w-4 h-4" />
+            Add {isManagementOnly ? 'Team Member' : 'Employee'}
+          </button>
+        </div>
+      </div>
+
+      {/* Analytics Summary Banner */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div className="glass rounded-xl p-4 bg-gradient-to-r from-indigo-50/60 to-blue-50/60 border border-indigo-200/80 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Total Personnel</p>
+            <p className="text-2xl font-black text-slate-800">{employees.length}</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center border border-indigo-200">
+            <Users className="w-5 h-5 text-indigo-600" />
+          </div>
+        </div>
+
+        <div className="glass rounded-xl p-4 bg-gradient-to-r from-emerald-50/60 to-teal-50/60 border border-emerald-200/80 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Active Staff</p>
+            <p className="text-2xl font-black text-slate-800">{employees.filter(e => e.is_active).length}</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-emerald-100 flex items-center justify-center border border-emerald-250">
+            <UserCheck className="w-5 h-5 text-emerald-600" />
+          </div>
+        </div>
+
+        <div className="glass rounded-xl p-4 bg-gradient-to-r from-yellow-50/60 to-amber-50/60 border border-yellow-200/80 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Average Rewards</p>
+            <p className="text-2xl font-black text-slate-800">
+              {(employees.reduce((acc, curr) => acc + (curr.reward_points || 0), 0) / (employees.length || 1)).toFixed(1)} pts
+            </p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-yellow-100 flex items-center justify-center border border-yellow-250">
+            <Trophy className="w-5 h-5 text-yellow-600" />
+          </div>
+        </div>
+
+        <div className="glass rounded-xl p-4 bg-gradient-to-r from-rose-50/60 to-pink-50/60 border border-rose-200/80 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Inactive Accounts</p>
+            <p className="text-2xl font-black text-slate-800">{employees.filter(e => !e.is_active).length}</p>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center border border-rose-250">
+            <UserX className="w-5 h-5 text-rose-600" />
+          </div>
+        </div>
       </div>
 
       {/* Role Pill Filters */}
@@ -453,17 +589,36 @@ HR Operations & Management`;
         ))}
       </div>
 
-      {/* Search */}
-      <div className="glass rounded-xl p-4 mb-6">
-        <div className="relative">
+      {/* Search & Filters */}
+      <div className="glass rounded-xl p-4 mb-6 flex flex-col md:flex-row gap-4 items-center">
+        <div className="relative flex-1 w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="input pl-10"
+            className="input pl-10 w-full"
             placeholder="Search employees by name or email..."
           />
+        </div>
+        
+        {/* Business Unit Selector */}
+        <div className="flex items-center gap-2 bg-slate-50/50 px-3 py-1.5 rounded-xl border border-slate-200/80 w-full md:w-auto">
+          <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest flex items-center gap-1">
+            <Layers className="w-3.5 h-3.5 text-indigo-500" /> Department
+          </span>
+          <select
+            value={filterBusinessUnit}
+            onChange={(e) => setFilterBusinessUnit(e.target.value)}
+            className="text-xs font-bold bg-transparent border-none text-slate-700 focus:outline-none cursor-pointer min-w-[150px] p-0.5"
+          >
+            <option value="">All Departments</option>
+            {businessUnits.map((bu: any) => (
+              <option key={bu.id} value={bu.id}>
+                {bu.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -483,24 +638,60 @@ HR Operations & Management`;
           <tbody className="divide-y divide-border">
             {filtered.map((emp) => (
               <tr key={emp.id} className="hover:bg-slate-50/50 transition-colors">
-                <td className="px-6 py-4">
-                  <UserLink
-                    id={emp.id}
-                    name={emp.name}
-                    email={emp.email}
-                    reward_points={emp.reward_points}
-                    role={emp.role}
-                  />
+                 <td className="px-6 py-4">
+                  <div className="flex flex-col gap-1.5">
+                    <UserLink
+                      id={emp.id}
+                      name={emp.name}
+                      email={emp.email}
+                      reward_points={emp.reward_points}
+                      role={emp.role}
+                    />
+                    <div className="flex flex-col pl-9">
+                      <span className="text-[10px] text-slate-400 font-medium">{emp.email}</span>
+                      {(() => {
+                        const pct = calculateProfileCompleteness(emp);
+                        return (
+                          <div className="flex items-center gap-1.5 mt-1" title="Profile completion level based on primary legal & organization records">
+                            <div className="w-12 bg-slate-100 rounded-full h-1 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  pct === 100 ? 'bg-emerald-500' : pct >= 65 ? 'bg-indigo-500' : 'bg-amber-500'
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className={`text-[9px] font-black uppercase tracking-tight ${
+                              pct === 100 ? 'text-emerald-600' : pct >= 65 ? 'text-indigo-600' : 'text-amber-600'
+                            }`}>
+                              {pct}% Profile
+                            </span>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
                 </td>
                 <td className="px-6 py-4">
                   <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${getRoleBadge(emp.role)}`}>
                     {emp.role.replace(/_/g, ' ')}
                   </span>
                 </td>
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-1 text-yellow-600 font-semibold">
-                    <Trophy className="w-3.5 h-3.5" />
-                    {emp.reward_points}
+                 <td className="px-6 py-4">
+                  <div className="flex items-center gap-2 text-yellow-600 font-semibold">
+                    <div className="flex items-center gap-1">
+                      <Trophy className="w-3.5 h-3.5" />
+                      {emp.reward_points}
+                    </div>
+                    {(isHRTeam || isAdmin) && (
+                      <button
+                        onClick={() => handleQuickRewardPoints(emp.id, emp.reward_points)}
+                        className="w-5 h-5 rounded-md bg-yellow-50 hover:bg-yellow-100 text-yellow-600 border border-yellow-100 flex items-center justify-center text-xs font-black shadow-sm transition-all"
+                        title="Quick adjust reward points"
+                      >
+                        +
+                      </button>
+                    )}
                   </div>
                 </td>
                 <td className="px-6 py-4">
@@ -796,7 +987,18 @@ HR Operations & Management`;
                       </button>
                       <button
                         type="button"
-                        onClick={() => setActiveStep(3)}
+                        onClick={() => {
+                          if (
+                            (newEmployee.job_title || '').trim() &&
+                            (newEmployee.department || '').trim() &&
+                            (newEmployee.branch || '').trim()
+                          ) {
+                            setActiveStep(3);
+                            setError('');
+                          } else {
+                            setError('Official Job Designation, Department/Team, and Office Branch Location are required to proceed.');
+                          }
+                        }}
                         className="btn btn-primary h-12 rounded-xl font-bold flex items-center gap-2 px-6"
                       >
                         Next: Hierarchy

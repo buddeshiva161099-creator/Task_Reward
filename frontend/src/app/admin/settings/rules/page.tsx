@@ -32,6 +32,8 @@ export default function RulesSettingsPage() {
   const [earnedLeaveLimit, setEarnedLeaveLimit] = useState(0);
   const [casualLeaveLimit, setCasualLeaveLimit] = useState(12);
   const [maxPaidCasualLeavesPerMonth, setMaxPaidCasualLeavesPerMonth] = useState(1);
+  const [halfDayMinHours, setHalfDayMinHours] = useState(4.0);
+  const [fullDayMinHours, setFullDayMinHours] = useState(8.0);
 
   // Points & Rules State
   const [priorityPoints, setPriorityPoints] = useState({
@@ -65,6 +67,9 @@ export default function RulesSettingsPage() {
   const [attendanceBonusThreshold, setAttendanceBonusThreshold] = useState(95.0);
   const [attendanceBonusPercentage, setAttendanceBonusPercentage] = useState(5.0);
   const [performancePoolPercentage, setPerformancePoolPercentage] = useState(25.0);
+  const [performanceBonusThreshold, setPerformanceBonusThreshold] = useState(80.0);
+  const [performanceBonusPercentage, setPerformanceBonusPercentage] = useState(10.0);
+  const [performanceBonusAmount, setPerformanceBonusAmount] = useState(0.0);
 
   useEffect(() => {
     const fetchCompany = async () => {
@@ -98,10 +103,15 @@ export default function RulesSettingsPage() {
           if (myCompany.attendance_bonus_threshold !== undefined) setAttendanceBonusThreshold(myCompany.attendance_bonus_threshold);
           if (myCompany.attendance_bonus_percentage !== undefined) setAttendanceBonusPercentage(myCompany.attendance_bonus_percentage);
           if (myCompany.performance_incentive_pool_percentage !== undefined) setPerformancePoolPercentage(myCompany.performance_incentive_pool_percentage);
+          if (myCompany.performance_bonus_threshold !== undefined) setPerformanceBonusThreshold(myCompany.performance_bonus_threshold);
+          if (myCompany.performance_bonus_percentage !== undefined) setPerformanceBonusPercentage(myCompany.performance_bonus_percentage);
+          if (myCompany.performance_bonus_amount !== undefined) setPerformanceBonusAmount(myCompany.performance_bonus_amount);
           if (myCompany.sick_leave_limit !== undefined) setSickLeaveLimit(myCompany.sick_leave_limit);
           if (myCompany.earned_leave_limit !== undefined) setEarnedLeaveLimit(myCompany.earned_leave_limit);
           if (myCompany.casual_leave_limit !== undefined) setCasualLeaveLimit(myCompany.casual_leave_limit);
           if (myCompany.max_paid_casual_leaves_per_month !== undefined) setMaxPaidCasualLeavesPerMonth(myCompany.max_paid_casual_leaves_per_month);
+          if (myCompany.half_day_min_hours !== undefined) setHalfDayMinHours(myCompany.half_day_min_hours);
+          if (myCompany.full_day_min_hours !== undefined) setFullDayMinHours(myCompany.full_day_min_hours);
         }
       } catch (err) {
         console.error('Failed to fetch company:', err);
@@ -135,10 +145,15 @@ export default function RulesSettingsPage() {
         attendance_bonus_threshold: attendanceBonusThreshold,
         attendance_bonus_percentage: attendanceBonusPercentage,
         performance_incentive_pool_percentage: performancePoolPercentage,
+        performance_bonus_threshold: performanceBonusThreshold,
+        performance_bonus_percentage: performanceBonusPercentage,
+        performance_bonus_amount: performanceBonusAmount,
         sick_leave_limit: sickLeaveLimit,
         earned_leave_limit: earnedLeaveLimit,
         casual_leave_limit: casualLeaveLimit,
-        max_paid_casual_leaves_per_month: maxPaidCasualLeavesPerMonth
+        max_paid_casual_leaves_per_month: maxPaidCasualLeavesPerMonth,
+        half_day_min_hours: halfDayMinHours,
+        full_day_min_hours: fullDayMinHours
       });
 
       const updatedCompany = res.data;
@@ -198,10 +213,15 @@ export default function RulesSettingsPage() {
                     if (selected.attendance_bonus_threshold !== undefined) setAttendanceBonusThreshold(selected.attendance_bonus_threshold);
                     if (selected.attendance_bonus_percentage !== undefined) setAttendanceBonusPercentage(selected.attendance_bonus_percentage);
                     if (selected.performance_incentive_pool_percentage !== undefined) setPerformancePoolPercentage(selected.performance_incentive_pool_percentage);
+                    if (selected.performance_bonus_threshold !== undefined) setPerformanceBonusThreshold(selected.performance_bonus_threshold);
+                    if (selected.performance_bonus_percentage !== undefined) setPerformanceBonusPercentage(selected.performance_bonus_percentage);
+                    if (selected.performance_bonus_amount !== undefined) setPerformanceBonusAmount(selected.performance_bonus_amount);
                     if (selected.sick_leave_limit !== undefined) setSickLeaveLimit(selected.sick_leave_limit);
                     if (selected.earned_leave_limit !== undefined) setEarnedLeaveLimit(selected.earned_leave_limit);
                     if (selected.casual_leave_limit !== undefined) setCasualLeaveLimit(selected.casual_leave_limit);
                     if (selected.max_paid_casual_leaves_per_month !== undefined) setMaxPaidCasualLeavesPerMonth(selected.max_paid_casual_leaves_per_month);
+                    if (selected.half_day_min_hours !== undefined) setHalfDayMinHours(selected.half_day_min_hours);
+                    if (selected.full_day_min_hours !== undefined) setFullDayMinHours(selected.full_day_min_hours);
                   }
                 }}
                 className="text-sm font-bold text-slate-800 border border-slate-200 rounded-lg py-1.5 px-3 bg-white shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
@@ -331,6 +351,32 @@ export default function RulesSettingsPage() {
                 </select>
               </div>
             )}
+            
+            {/* Half Day & Full Day Min Hours Thresholds */}
+            <div className="space-y-4 col-span-1 md:col-span-3 border-t border-slate-100 pt-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700">Minimum Hours for Half Day Present</label>
+                <input 
+                  type="number" step="0.5"
+                  value={halfDayMinHours}
+                  onChange={(e) => setHalfDayMinHours(parseFloat(e.target.value) || 0)}
+                  placeholder="4.0"
+                  className="input text-sm border border-slate-200 rounded-lg p-2 w-full focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                />
+                <p className="text-[10px] text-slate-400">If worked hours are below this threshold, the day is marked as absent.</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-700">Minimum Hours for Full Day Present</label>
+                <input 
+                  type="number" step="0.5"
+                  value={fullDayMinHours}
+                  onChange={(e) => setFullDayMinHours(parseFloat(e.target.value) || 0)}
+                  placeholder="8.0"
+                  className="input text-sm border border-slate-200 rounded-lg p-2 w-full focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+                />
+                <p className="text-[10px] text-slate-400">Working hours between the Half Day and Full Day thresholds count as 0.5 present days.</p>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -522,6 +568,33 @@ export default function RulesSettingsPage() {
                 type="number" step="1.0"
                 value={performancePoolPercentage}
                 onChange={(e) => setPerformancePoolPercentage(parseFloat(e.target.value) || 0)}
+                className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Performance Bonus Threshold %</label>
+              <input 
+                type="number" step="1.0"
+                value={performanceBonusThreshold}
+                onChange={(e) => setPerformanceBonusThreshold(parseFloat(e.target.value) || 0)}
+                className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Performance Bonus %</label>
+              <input 
+                type="number" step="0.5"
+                value={performanceBonusPercentage}
+                onChange={(e) => setPerformanceBonusPercentage(parseFloat(e.target.value) || 0)}
+                className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Performance Bonus Flat Amount (₹)</label>
+              <input 
+                type="number" step="100"
+                value={performanceBonusAmount}
+                onChange={(e) => setPerformanceBonusAmount(parseFloat(e.target.value) || 0)}
                 className="w-full text-sm border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
               />
             </div>
