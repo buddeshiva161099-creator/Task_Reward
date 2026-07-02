@@ -626,7 +626,7 @@ export default function AttendanceManagementPage() {
       const workDayNames = new Set((work_days || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']).map((d: string) => d.toLowerCase()));
       const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
 
-      let html = `
+      const html = `
         <html>
           <head>
             <title>Monthly Attendance Report - ${monthName} ${exportYear}</title>

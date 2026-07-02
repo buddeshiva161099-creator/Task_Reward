@@ -51,8 +51,8 @@ class Attendance(Document):
             ("tenant_id", "business_unit_id", "check_in")
         ]
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "user_id": "507f1f77bcf86cd799439011",
                 "tenant_id": "507f1f77bcf86cd799439012",
@@ -61,4 +61,5 @@ class Attendance(Document):
                 "status": "present"
             }
         }
+    }
 

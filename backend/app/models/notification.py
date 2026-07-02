@@ -19,8 +19,8 @@ class Notification(Document):
         name = "notifications"
         indexes = ["user_id", "tenant_id", "is_read", "created_at"]
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "user_id": "507f1f77bcf86cd799439011",
                 "title": "New Task Assigned",
@@ -29,3 +29,4 @@ class Notification(Document):
                 "is_read": False,
             }
         }
+    }

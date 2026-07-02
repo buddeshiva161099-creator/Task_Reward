@@ -83,12 +83,13 @@ async def seed_simulation_data(admin: User = Depends(require_admin)):
 
         # 4. Salary Structures
         # Base Salary ratios
-        basic = ud["base_salary"] * 0.6
-        hra = ud["base_salary"] * 0.3
-        allowance = ud["base_salary"] * 0.1
-        pf = ud["base_salary"] * 0.03
-        esi = ud["base_salary"] * 0.01
-        tax = ud["base_salary"] * 0.02 if ud["base_salary"] >= 30000 else 200.0
+        base_salary = float(ud["base_salary"])
+        basic = base_salary * 0.6
+        hra = base_salary * 0.3
+        allowance = base_salary * 0.1
+        pf = base_salary * 0.03
+        esi = base_salary * 0.01
+        tax = base_salary * 0.02 if base_salary >= 30000 else 200.0
 
         structure = SalaryStructure(
             user_id=user.id,

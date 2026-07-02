@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OwnerAuthProvider } from "@/contexts/OwnerAuthContext";
+import ErrorBoundary from "@/components/ErrorBoundary";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -40,11 +41,13 @@ export default function RootLayout({
         `}} />
       </head>
       <body className={inter.className} spellCheck="false" suppressHydrationWarning>
-        <AuthProvider>
-          <OwnerAuthProvider>
-            {children}
-          </OwnerAuthProvider>
-        </AuthProvider>
+        <ErrorBoundary>
+          <AuthProvider>
+            <OwnerAuthProvider>
+              {children}
+            </OwnerAuthProvider>
+          </AuthProvider>
+        </ErrorBoundary>
       </body>
     </html>
   );

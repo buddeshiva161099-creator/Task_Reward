@@ -20,11 +20,12 @@ class Category(Document):
         name = "categories"
         indexes = ["tenant_id", "business_unit_id", "name", ("tenant_id", "name")]
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "name": "Development",
                 "color": "#6366f1",
                 "is_active": True,
             }
         }
+    }
