@@ -277,8 +277,8 @@ async def lifespan(app: FastAPI):
 
     await ensure_platform_owner_exists()
 
-    # Run the backfill migration for legacy attendance documents
-    await backfill_attendance_tenant_ids()
+    # Run the backfill migration for legacy attendance documents in the background
+    asyncio.create_task(backfill_attendance_tenant_ids())
 
     bg_task = asyncio.create_task(run_periodic_tasks())
     yield
