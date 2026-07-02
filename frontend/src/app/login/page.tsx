@@ -128,6 +128,18 @@ export default function LoginPage() {
             </button>
           </form>
 
+          <div className="mt-4 text-center">
+            <a
+              href="https://task-reward-khtg.onrender.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 text-xs font-semibold text-indigo-500 hover:text-indigo-650 bg-indigo-50/50 hover:bg-indigo-50 px-4 py-2 rounded-lg border border-indigo-200 transition-colors w-full"
+            >
+              <Zap className="w-3.5 h-3.5 animate-pulse" />
+              Start Backend Server (Cold Start)
+            </a>
+          </div>
+
           {/* Info */}
           <div className="mt-6 pt-5 border-t border-border">
             <div className="flex items-start gap-2 text-xs text-muted-foreground">

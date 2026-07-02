@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useOwnerAuth } from '@/contexts/OwnerAuthContext';
-import { Crown, Eye, EyeOff, ArrowRight, Shield } from 'lucide-react';
+import { Crown, Eye, EyeOff, ArrowRight, Shield, Zap } from 'lucide-react';
 
 export default function OwnerLoginPage() {
   const [email, setEmail] = useState('');
@@ -112,6 +112,18 @@ export default function OwnerLoginPage() {
               )}
             </button>
           </form>
+
+          <div className="mt-4 text-center">
+            <a
+              href="https://task-reward-khtg.onrender.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center justify-center gap-2 text-xs font-semibold text-amber-500 hover:text-amber-450 bg-slate-900/50 hover:bg-slate-900 border border-slate-700 hover:border-amber-500/50 px-4 py-2 rounded-lg transition-colors w-full"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-500 animate-pulse" />
+              Start Backend Server (Cold Start)
+            </a>
+          </div>
         </div>
 
         <p className="text-center text-xs text-slate-500 mt-6">
