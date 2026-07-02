@@ -70,17 +70,13 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('server-waking-up', { detail: { waking: true } }));
-        
         try {
           const isOnline = await pollHealthEndpoint(API_BASE_URL);
-          window.dispatchEvent(new CustomEvent('server-waking-up', { detail: { waking: false } }));
-          
           if (isOnline) {
             return api(originalRequest);
           }
         } catch (pollErr) {
-          window.dispatchEvent(new CustomEvent('server-waking-up', { detail: { waking: false } }));
+          // Silently fail and reject
         }
       }
     }
