@@ -4,6 +4,7 @@ import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { OwnerAuthProvider } from "@/contexts/OwnerAuthContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import ServerWakingBanner from "@/components/ServerWakingBanner";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -44,6 +45,7 @@ export default function RootLayout({
         <ErrorBoundary>
           <AuthProvider>
             <OwnerAuthProvider>
+              <ServerWakingBanner />
               {children}
             </OwnerAuthProvider>
           </AuthProvider>
