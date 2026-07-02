@@ -147,7 +147,7 @@ export default function ChatContainer() {
     if (!selectedUser && !selectedGroup) return;
     if (!isPolling) setLoadingHistory(true);
     try {
-      let url = '/chat/history';
+      const url = '/chat/history';
       const params: any = {};
       if (selectedGroup) {
         params.group_id = selectedGroup.id;

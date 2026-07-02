@@ -37,9 +37,9 @@ class NotificationResponse(NotificationBase):
 
         )
 
-    class Config:
-        populate_by_name = True
-        json_schema_extra = {
+    model_config = {
+        "populate_by_name": True,
+        "json_schema_extra": {
             "example": {
                 "id": "507f1f77bcf86cd799439011",
                 "title": "New Task Assigned",
@@ -49,6 +49,7 @@ class NotificationResponse(NotificationBase):
                 "created_at": "2024-05-14T12:00:00"
             }
         }
+    }
 
 class NotificationList(BaseModel):
     items: List[NotificationResponse]

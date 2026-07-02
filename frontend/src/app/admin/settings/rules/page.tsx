@@ -74,8 +74,8 @@ export default function RulesSettingsPage() {
   useEffect(() => {
     const fetchCompany = async () => {
       try {
-        let res = await api.get('/tenants');
-        let data = res.data;
+        const res = await api.get('/tenants');
+        const data = res.data;
         if (data.length === 0) {
           setError('No tenant configuration exists. Onboard a tenant from the platform owner panel.');
           setLoading(false);

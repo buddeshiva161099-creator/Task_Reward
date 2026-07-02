@@ -1,6 +1,7 @@
+import * as fs from "fs";
 import { test, expect, Page } from '@playwright/test';
 
-const BASE = 'https://hrm.bstk.in';
+const BASE = 'http://localhost:3000';
 const TS = Date.now().toString().slice(-6);
 const ADMIN_EMAIL = `admin-${TS}@bootstrap.com`;
 const ADMIN_PASS = 'TestPass@123';
@@ -82,7 +83,7 @@ test('Setup: Create tenant via owner portal', async ({ page }) => {
   console.log(`Admin: ${ADMIN_EMAIL} / ${tempPassword}`);
 
   // Save credentials to file for subsequent tests
-  const fs = require('fs');
+
   fs.writeFileSync('test-results/bootstrap-credentials.txt',
     `TS=${TS}\nADMIN_EMAIL=${ADMIN_EMAIL}\nADMIN_PASS=${tempPassword}\n`);
 
@@ -93,7 +94,7 @@ test('Setup: Create tenant via owner portal', async ({ page }) => {
 
 test('Setup: Admin creates company and employees', async ({ page }) => {
   // Read credentials
-  const fs = require('fs');
+
   const credsRaw = fs.readFileSync('test-results/bootstrap-credentials.txt', 'utf-8');
   const creds: Record<string, string> = {};
   credsRaw.split('\n').forEach(line => {

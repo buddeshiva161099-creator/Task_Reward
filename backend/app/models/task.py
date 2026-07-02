@@ -67,8 +67,8 @@ class Task(Document):
         name = "tasks"
         indexes = ["assigned_to", "created_by", "status", "deadline", "tenant_id", "business_unit_id", ("tenant_id", "status")]
 
-    class Config:
-        json_schema_extra = {
+    model_config = {
+        "json_schema_extra": {
             "example": {
                 "work_description": "Complete the weekly status report with all details",
                 "status": "pending",
@@ -77,3 +77,4 @@ class Task(Document):
                 "deadline": "2024-12-31T17:00:00",
             }
         }
+    }

@@ -162,7 +162,7 @@ async def run_task_analysis(
         In(Task.status, [TaskStatus.PENDING, TaskStatus.ASSIGNED, TaskStatus.IN_PROGRESS, TaskStatus.OVERDUE, TaskStatus.DELAYED])
     ).count()
 
-    user_task_counts = {}
+    user_task_counts: dict[str, int] = {}
     for task in active_tasks:
         uid = str(task.assigned_to)
         user_task_counts[uid] = user_task_counts.get(uid, 0) + 1
@@ -535,8 +535,8 @@ async def run_payroll_analysis(
     async for doc in sort_cursor:
         payrolls.append(doc)
 
-    alerts = []
-    user_payroll_history = {}
+    alerts: list = []
+    user_payroll_history: dict[str, list] = {}
     for p in payrolls:
         uid = str(p["user_id"])
         if uid not in user_payroll_history:

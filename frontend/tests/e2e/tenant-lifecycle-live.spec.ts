@@ -1,7 +1,8 @@
+import * as fs from "fs";
 import { test, expect, Page } from '@playwright/test';
 
 const OWNER = { email: 'owner@vision.app', password: 'StrongP@ss123' };
-const BASE = 'https://hrm.bstk.in';
+const BASE = 'http://localhost:3000';
 const TS = Date.now().toString().slice(-6);
 
 async function screenshot(page: Page, name: string) {
@@ -117,7 +118,7 @@ test('Full tenant lifecycle E2E', async ({ page }) => {
   console.log(`Admin credentials: admin-${TS}@testcorp.com / ${adminPassword}`);
 
   // Save to a known location for verification
-  const fs = require('fs');
+
   fs.writeFileSync('test-results/tenant-credentials.txt',
     `Tenant: TestCorp-${TS}\nAdmin Email: admin-${TS}@testcorp.com\nAdmin Password: ${adminPassword}\n`);
 

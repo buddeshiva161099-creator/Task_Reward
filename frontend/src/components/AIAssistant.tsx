@@ -90,7 +90,7 @@ export default function AIAssistant() {
         history: historyPayload
       });
       
-      let responseText = res.data.answer;
+      const responseText = res.data.answer;
       let actionCompletedMessage = "";
 
       // Regex to extract json block inside markdown code block

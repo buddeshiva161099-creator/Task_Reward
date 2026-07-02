@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
-import { Mail, Trophy, ClipboardList, CheckCircle2, Clock, Play, AlertCircle, Loader2 } from 'lucide-react';
+import { Trophy, ClipboardList, CheckCircle2, Clock, Play, AlertCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { Skeleton } from './Skeleton';
 
@@ -34,7 +34,7 @@ interface UserLinkProps {
 }
 
 export default function UserLink({
-  id, name, email, reward_points, role,
+  id, name,
   avatarClassName = "w-7 h-7",
   textClassName = "text-sm font-medium",
   showAvatar = true
