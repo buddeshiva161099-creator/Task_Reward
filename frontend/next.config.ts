@@ -31,6 +31,7 @@ const nextConfig: NextConfig = {
         },
       ],
       afterFiles: [
+        { source: "/health", destination: `${BACKEND_URL}/` },
         { source: "/platform/:path*", destination: `${BACKEND_URL}/platform/:path*` },
         { source: "/auth/:path*", destination: `${BACKEND_URL}/auth/:path*` },
         { source: "/admin/employees", destination: `${BACKEND_URL}/admin/employees` },

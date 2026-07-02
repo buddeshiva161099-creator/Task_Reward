@@ -21,7 +21,7 @@ ownerApi.interceptors.request.use(
 );
 
 const pollHealthEndpoint = async (baseUrl: string): Promise<boolean> => {
-  const pollUrl = baseUrl || '/';
+  const pollUrl = baseUrl ? (baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`) : '/health';
   const maxAttempts = 15;
   const delay = 4000;
 
