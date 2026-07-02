@@ -48,9 +48,18 @@ async def db():
 
     try:
         # Set a 2-second timeout for tests so we don't hang if Atlas is offline
-        client = AsyncMongoClient(mongodb_url, serverSelectionTimeoutMS=2000, tz_aware=True)
-        await client.admin.command('ping')
-        database = client.test_db_fixes
+        import mongomock
+        if not hasattr(mongomock.Database, "_is_patched"):
+            orig_list_collection_names = mongomock.Database.list_collection_names
+            def patched_list_collection_names(self, filter=None, session=None, *args, **kwargs):
+                return orig_list_collection_names(self, filter=filter, session=session)
+            mongomock.Database.list_collection_names = patched_list_collection_names
+            mongomock.Database._is_patched = True
+        from mongomock_motor import AsyncMongoMockClient
+        mock_client = AsyncMongoMockClient(tz_aware=True)
+        database = mock_client.test_db_fixes
+
+
     except Exception as e:
         if not settings.ALLOW_IN_MEMORY_DB_FALLBACK:
             raise

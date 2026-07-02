@@ -20,9 +20,9 @@ class UserRole(str, Enum):
 
 class User(Document):
     name: str = Field(..., min_length=1, max_length=100)
-    email: EmailStr = Field(..., unique=True)
-    password_hash: str
-    raw_password: Optional[str] = None  # Deprecated: retained only to read legacy documents; never populate.
+    email: EmailStr = Field(..., json_schema_extra={"unique": True})
+    password_hash: str = Field(exclude=True) = Field(exclude=True)
+    raw_password: Optional[str] = Field(default=None, exclude=True)  # Deprecated: retained only to read legacy documents; never populate.
     failed_login_attempts: int = Field(default=0)
     lockout_until: Optional[datetime] = None
     performance_target: Optional[float] = Field(default=None, description="Custom performance target points for payroll calculations")
@@ -94,14 +94,16 @@ class User(Document):
             exclude["raw_password"] = True
         return super().model_dump_json(*args, **kwargs)
 
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "name": "John Doe",
-                "email": "john@example.com",
-                "password_hash": "hashed_password",
+    model_config = {
+        "json_schema_extra": {
                 "role": "employee",
                 "reward_points": 0,
                 "is_active": True,
+            }
+        }
+    }
+            }
+        }
+    }
             }
         }

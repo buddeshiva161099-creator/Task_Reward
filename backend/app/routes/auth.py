@@ -20,12 +20,17 @@ change_password_limiter = RateLimiter(times=5, seconds=60)
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
+from app.main import limiter
+from fastapi import Request
+
 @router.post("/login", response_model=TokenResponse, dependencies=[Depends(login_limiter)])
-async def login(request: LoginRequest, response: Response):
+@limiter.limit("5/minute")
+async def login(request: Request, login_request: LoginRequest, response: Response):
+    request_data = login_request
     """Authenticate user and return JWT token."""
     from datetime import datetime, timezone, timedelta
 
-    user = await User.find_one(User.email == request.email)
+    user = await User.find_one(User.email == request_data.email)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -45,7 +50,7 @@ async def login(request: LoginRequest, response: Response):
                 detail=f"Account is locked due to multiple failed login attempts. Please try again after {remaining_minutes} minutes.",
             )
 
-    if not verify_password(request.password, user.password_hash):
+    if not verify_password(request_data.password, user.password_hash):
         # Increment failed login attempts
         failed_attempts = getattr(user, "failed_login_attempts", 0) + 1
         update_fields = {"failed_login_attempts": failed_attempts}
@@ -123,7 +128,7 @@ async def register(request: RegisterRequest):
             detail="Public registration is disabled. Contact an administrator for account creation.",
         )
 
-    validate_password_strength(request.password)
+    validate_password_strength(request_data.password)
 
     if request.role != UserRole.EMPLOYEE.value:
         raise HTTPException(
@@ -131,7 +136,7 @@ async def register(request: RegisterRequest):
             detail="Public registration can only create employee accounts.",
         )
 
-    existing = await User.find_one(User.email == request.email)
+    existing = await User.find_one(User.email == request_data.email)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -140,8 +145,8 @@ async def register(request: RegisterRequest):
 
     user = User(
         name=request.name,
-        email=request.email,
-        password_hash=hash_password(request.password),
+        email=request_data.email,
+        password_hash=hash_password(request_data.password),
         role=UserRole(request.role),
     )
     await user.insert()

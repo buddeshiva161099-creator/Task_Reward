@@ -416,7 +416,8 @@ async def update_employee(
 ):
     from beanie import PydanticObjectId
 
-    target_employee = await user_service.get_employee_by_id(employee_id)
+    tenant_id = require_tenant_id(user)
+    target_employee = await user_service.get_employee_by_id(employee_id, tenant_id=tenant_id)
     if not target_employee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Employee not found")
 
